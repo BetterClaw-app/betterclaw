@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <em>Intelligent context layer between your iOS device and your AI agent</em>
+  <em>OpenClaw plugin for the BetterClaw iOS app</em>
 </p>
 
 <p align="center">
@@ -15,27 +15,25 @@
 
 ---
 
-## The Problem
+## What is this?
 
-Your phone generates hundreds of sensor events per day — location changes, battery updates, health readings, geofence triggers. Dumping all of them into your AI agent's conversation is noisy, expensive, and useless.
+This is the server-side plugin for [BetterClaw](https://github.com/BetterClaw-app/BetterClaw-ios), an iOS app that connects your iPhone's sensors to your [OpenClaw](https://openclaw.dev) AI agent. The app streams device events (location, battery, health, geofences) to your gateway — this plugin decides what to do with them.
 
-## The Solution
-
-BetterClaw sits between your iOS device and your OpenClaw agent. It filters, triages, and enriches events so only the ones that matter reach your agent — with full context attached.
+Without this plugin, raw events go straight to your agent. With it, they're filtered, triaged, and enriched before anything reaches your agent's conversation.
 
 ```
-  iOS App                    BetterClaw Plugin                     Agent
- ─────────                  ──────────────────                   ────────
-                                    │
-  battery ──────▶  ┌────────────────┼────────────────┐
-  location ─────▶  │  Rules Engine  │  Context Store  │
-  health ───────▶  │  LLM Triage    │  Pattern Engine  │ ──▶  filtered events
-  geofence ─────▶  │  Budget Limiter│  Proactive Triggers│      + full context
-                   └────────────────┼────────────────┘
-                                    │
-                              proactive insights
-                           (low battery + away from
-                            home, sleep deficit, etc.)
+  BetterClaw iOS App          This Plugin (on gateway)              Agent
+ ──────────────────          ────────────────────────             ────────
+                                       │
+  battery ──────▶  ┌───────────────────┼───────────────────┐
+  location ─────▶  │  Rules Engine     │  Context Store     │
+  health ───────▶  │  LLM Triage       │  Pattern Engine    │ ──▶  filtered events
+  geofence ─────▶  │  Budget Limiter   │  Proactive Triggers│      + full context
+                   └───────────────────┼───────────────────┘
+                                       │
+                                 proactive insights
+                              (low battery + away from
+                               home, sleep deficit, etc.)
 ```
 
 ## Features
@@ -47,15 +45,18 @@ BetterClaw sits between your iOS device and your OpenClaw agent. It filters, tri
 - **Proactive Insights** — Combined-signal triggers: low battery away from home, unusual inactivity, sleep deficit, routine deviations, weekly digest
 - **Agent Tool** — `get_context` tool lets your agent read the full device snapshot on demand
 
-## Quickstart
+## Requirements
 
-### Install
+- [BetterClaw iOS app](https://github.com/BetterClaw-app/BetterClaw-ios) installed and connected to your gateway
+- [OpenClaw](https://openclaw.dev) gateway (2025.12+)
+
+## Install
 
 ```bash
 openclaw plugins install @betterclaw-app/betterclaw
 ```
 
-### Configure
+## Configure
 
 Add to your `openclaw.json`:
 
@@ -92,7 +93,7 @@ All config keys are optional — defaults are shown above.
 
 ### Event Pipeline
 
-Every device event goes through a multi-stage pipeline before reaching your agent:
+Every device event from the BetterClaw app goes through a multi-stage pipeline before reaching your agent:
 
 1. **Rules Engine** — Checks dedup, cooldown timers, and daily budget. Obvious spam is dropped immediately.
 2. **LLM Triage** — Events that aren't clearly push or suppress get a fast LLM call with device context for a judgment call.
