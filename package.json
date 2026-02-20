@@ -1,6 +1,6 @@
 {
-  "name": "@betterclaw-app/betterclaw-plugin",
-  "version": "1.0.2",
+  "name": "@betterclaw-app/betterclaw",
+  "version": "1.0.3",
   "description": "Intelligent event filtering, context tracking, and proactive triggers for BetterClaw",
   "license": "AGPL-3.0-only",
   "repository": {

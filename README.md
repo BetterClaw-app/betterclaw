@@ -1,11 +1,11 @@
-# @betterclaw-app/betterclaw-plugin
+# @betterclaw-app/betterclaw
 
 OpenClaw plugin that adds intelligent event filtering, context tracking, pattern recognition, and proactive triggers for the [BetterClaw](https://github.com/BetterClaw-app) iOS companion app.
 
 ## Install
 
 ```bash
-openclaw plugins install @betterclaw-app/betterclaw-plugin
+openclaw plugins install @betterclaw-app/betterclaw
 ```
 
 ## What it does
