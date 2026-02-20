@@ -1,40 +1,61 @@
-# @betterclaw-app/betterclaw
+<p align="center">
+  <img src="docs/banner.png" alt="BetterClaw" width="100%" />
+</p>
 
-An [OpenClaw](https://openclaw.dev) plugin that acts as an intelligent context layer between the [BetterClaw](https://github.com/BetterClaw-app) iOS app and your AI agent.
+<p align="center">
+  <em>Intelligent context layer between your iOS device and your AI agent</em>
+</p>
 
-Instead of flooding your agent with every sensor reading, the plugin filters, triages, and enriches device events — only forwarding what actually matters.
+<p align="center">
+  <a href="https://www.npmjs.com/package/@betterclaw-app/betterclaw"><img src="https://img.shields.io/npm/v/@betterclaw-app/betterclaw?style=flat-square&color=blue" alt="npm version" /></a>
+  <a href="https://github.com/BetterClaw-app/betterclaw/blob/main/LICENSE"><img src="https://img.shields.io/github/license/BetterClaw-app/betterclaw?style=flat-square" alt="license" /></a>
+  <a href="https://www.npmjs.com/package/@betterclaw-app/betterclaw"><img src="https://img.shields.io/npm/dm/@betterclaw-app/betterclaw?style=flat-square&color=green" alt="downloads" /></a>
+  <a href="https://openclaw.dev"><img src="https://img.shields.io/badge/platform-OpenClaw-orange?style=flat-square" alt="OpenClaw" /></a>
+</p>
 
-## Install
+---
+
+## The Problem
+
+Your phone generates hundreds of sensor events per day — location changes, battery updates, health readings, geofence triggers. Dumping all of them into your AI agent's conversation is noisy, expensive, and useless.
+
+## The Solution
+
+BetterClaw sits between your iOS device and your OpenClaw agent. It filters, triages, and enriches events so only the ones that matter reach your agent — with full context attached.
+
+```
+  iOS App                    BetterClaw Plugin                     Agent
+ ─────────                  ──────────────────                   ────────
+                                    │
+  battery ──────▶  ┌────────────────┼────────────────┐
+  location ─────▶  │  Rules Engine  │  Context Store  │
+  health ───────▶  │  LLM Triage    │  Pattern Engine  │ ──▶  filtered events
+  geofence ─────▶  │  Budget Limiter│  Proactive Triggers│      + full context
+                   └────────────────┼────────────────┘
+                                    │
+                              proactive insights
+                           (low battery + away from
+                            home, sleep deficit, etc.)
+```
+
+## Features
+
+- **Smart Filtering** — Per-source dedup, cooldown windows, and a daily push budget prevent event spam
+- **LLM Triage** — Ambiguous events get a cheap LLM call to decide push vs. suppress, keeping the expensive agent focused
+- **Device Context** — Rolling state snapshot: battery, GPS, zone occupancy, health metrics, activity classification
+- **Pattern Recognition** — Computes location routines, health trends (7d/30d baselines), and event stats every 6 hours
+- **Proactive Insights** — Combined-signal triggers: low battery away from home, unusual inactivity, sleep deficit, routine deviations, weekly digest
+- **Agent Tool** — `get_context` tool lets your agent read the full device snapshot on demand
+
+## Quickstart
+
+### Install
 
 ```bash
 openclaw plugins install @betterclaw-app/betterclaw
 ```
 
-## How it works
-
-```
-iOS App  ──events──▶  Plugin Pipeline  ──filtered──▶  Agent Session
-                          │
-                     ┌────┴─────┐
-                     │ Filter   │  dedup, cooldowns, daily budget
-                     │ Triage   │  LLM call for ambiguous events
-                     │ Context  │  battery, location, health, zones
-                     │ Patterns │  routines, trends, stats (every 6h)
-                     │ Proactive│  combined-signal insights
-                     └──────────┘
-```
-
-**Filter** — Rules engine with per-source dedup, cooldown windows, and a configurable daily push budget. Prevents event spam.
-
-**Triage** — Ambiguous events get a cheap LLM call (configurable model) to decide push/suppress/defer. Keeps the expensive agent focused.
-
-**Context** — Maintains a rolling device state snapshot: battery level/state, GPS coordinates, zone occupancy, health metrics, activity classification.
-
-**Patterns** — Every 6 hours, computes location routines, health trends (7-day and 30-day baselines for steps, sleep, heart rate), and event frequency stats.
-
-**Proactive** — Fires combined-signal insights when conditions align: low battery away from home, unusual inactivity, sleep deficit, routine deviations, weekly health digest.
-
-## Configuration
+### Configure
 
 Add to your `openclaw.json`:
 
@@ -45,10 +66,10 @@ Add to your `openclaw.json`:
       "betterclaw": {
         "enabled": true,
         "config": {
-          "llmModel": "openai/gpt-4o-mini",  // model for event triage
-          "pushBudgetPerDay": 10,             // max events forwarded to agent per day
-          "patternWindowDays": 14,            // days of history for pattern computation
-          "proactiveEnabled": true            // enable proactive insight triggers
+          "llmModel": "openai/gpt-4o-mini",
+          "pushBudgetPerDay": 10,
+          "patternWindowDays": 14,
+          "proactiveEnabled": true
         }
       }
     }
@@ -58,9 +79,33 @@ Add to your `openclaw.json`:
 
 All config keys are optional — defaults are shown above.
 
-## Agent tool
+### Config Reference
 
-The plugin registers a `get_context` tool the agent can call anytime to read the full device state snapshot, including derived patterns and activity classification.
+| Key | Default | Description |
+|-----|---------|-------------|
+| `llmModel` | `openai/gpt-4o-mini` | Model used for ambiguous event triage |
+| `pushBudgetPerDay` | `10` | Max events forwarded to the agent per day |
+| `patternWindowDays` | `14` | Days of event history used for pattern computation |
+| `proactiveEnabled` | `true` | Enable proactive combined-signal insights |
+
+## How It Works
+
+### Event Pipeline
+
+Every device event goes through a multi-stage pipeline before reaching your agent:
+
+1. **Rules Engine** — Checks dedup, cooldown timers, and daily budget. Obvious spam is dropped immediately.
+2. **LLM Triage** — Events that aren't clearly push or suppress get a fast LLM call with device context for a judgment call.
+3. **Context Update** — The device context store is updated with the latest sensor data regardless of whether the event is forwarded.
+4. **Event Logging** — Every event and its decision (push/suppress/defer) is logged for pattern computation.
+5. **Agent Injection** — Events that pass are injected into the agent's main session with formatted context.
+
+### Background Services
+
+Two engines run on a schedule in the background:
+
+- **Pattern Engine** (every 6h) — Analyzes event history to compute location routines, health trends, and event frequency stats
+- **Proactive Engine** (every 30min) — Evaluates combined-signal conditions and fires insights when thresholds are met
 
 ## Commands
 
@@ -76,4 +121,4 @@ The plugin registers a `get_context` tool the agent can call anytime to read the
 
 ## License
 
-[AGPL-3.0](LICENSE)
+[AGPL-3.0](LICENSE) — Free to use, modify, and self-host. Derivative works must remain open source.
