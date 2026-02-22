@@ -32,6 +32,11 @@ export class EventLog {
     }
   }
 
+  async readRecent(limit: number = 20): Promise<EventLogEntry[]> {
+    const all = await this.readAll();
+    return all.slice(-limit);
+  }
+
   async readSince(sinceEpoch: number): Promise<EventLogEntry[]> {
     const all = await this.readAll();
     return all.filter((e) => e.timestamp >= sinceEpoch);

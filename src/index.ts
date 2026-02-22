@@ -91,6 +91,47 @@ export default {
       respond(true, { ok: true, version: "1.0.0", initialized });
     });
 
+    // Context RPC — returns activity, trends, and recent decisions for iOS Context tab
+    api.registerGatewayMethod("betterclaw.context", async ({ respond }) => {
+      if (!initialized) await initPromise;
+
+      const state = ctxManager.get();
+      const patterns = await ctxManager.readPatterns();
+      const recentEntries = await eventLog.readRecent(20);
+
+      const activity = {
+        currentZone: state.activity.currentZone,
+        zoneEnteredAt: state.activity.zoneEnteredAt,
+        lastTransition: state.activity.lastTransition,
+        isStationary: state.activity.isStationary,
+        stationarySince: state.activity.stationarySince,
+      };
+
+      const trends = patterns
+        ? {
+            stepsAvg7d: patterns.healthTrends.stepsAvg7d,
+            stepsTrend: patterns.healthTrends.stepsTrend,
+            sleepAvg7d: patterns.healthTrends.sleepAvg7d,
+            sleepTrend: patterns.healthTrends.sleepTrend,
+            restingHrAvg7d: patterns.healthTrends.restingHrAvg7d,
+            restingHrTrend: patterns.healthTrends.restingHrTrend,
+            eventsPerDay7d: patterns.eventStats.eventsPerDay7d,
+            pushesPerDay7d: patterns.eventStats.pushesPerDay7d,
+            dropRate7d: patterns.eventStats.dropRate7d,
+          }
+        : null;
+
+      const decisions = recentEntries.map((e) => ({
+        source: e.event.source,
+        title: e.event.subscriptionId,
+        decision: e.decision,
+        reason: e.reason,
+        timestamp: e.timestamp,
+      }));
+
+      respond(true, { activity, trends, decisions });
+    });
+
     // Agent tool
     api.registerTool(createGetContextTool(ctxManager), { optional: true });
 
