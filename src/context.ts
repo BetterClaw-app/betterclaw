@@ -132,6 +132,72 @@ export class ContextManager {
     }
   }
 
+  applySnapshot(snapshot: {
+    battery?: { level: number; state: string; isLowPowerMode: boolean };
+    location?: { latitude: number; longitude: number };
+    health?: {
+      stepsToday?: number; distanceMeters?: number; heartRateAvg?: number;
+      restingHeartRate?: number; hrv?: number; activeEnergyKcal?: number;
+      sleepDurationSeconds?: number;
+    };
+    geofence?: { type: string; zoneName: string; latitude: number; longitude: number };
+  }): void {
+    const now = Date.now() / 1000;
+
+    if (snapshot.battery) {
+      this.context.device.battery = {
+        level: snapshot.battery.level,
+        state: snapshot.battery.state,
+        isLowPowerMode: snapshot.battery.isLowPowerMode,
+        updatedAt: now,
+      };
+    }
+
+    if (snapshot.location) {
+      this.context.device.location = {
+        latitude: snapshot.location.latitude,
+        longitude: snapshot.location.longitude,
+        horizontalAccuracy: 0,
+        label: this.context.activity.currentZone,
+        updatedAt: now,
+      };
+    }
+
+    if (snapshot.health) {
+      this.context.device.health = {
+        stepsToday: snapshot.health.stepsToday ?? null,
+        distanceMeters: snapshot.health.distanceMeters ?? null,
+        heartRateAvg: snapshot.health.heartRateAvg ?? null,
+        restingHeartRate: snapshot.health.restingHeartRate ?? null,
+        hrv: snapshot.health.hrv ?? null,
+        activeEnergyKcal: snapshot.health.activeEnergyKcal ?? null,
+        sleepDurationSeconds: snapshot.health.sleepDurationSeconds ?? null,
+        updatedAt: now,
+      };
+    }
+
+    if (snapshot.geofence) {
+      const prevZone = this.context.activity.currentZone;
+      if (snapshot.geofence.type === "enter") {
+        this.context.activity.currentZone = snapshot.geofence.zoneName;
+        this.context.activity.zoneEnteredAt = now;
+        this.context.activity.isStationary = true;
+        this.context.activity.stationarySince = now;
+        this.context.activity.lastTransition = { from: prevZone, to: snapshot.geofence.zoneName, at: now };
+      } else {
+        this.context.activity.currentZone = null;
+        this.context.activity.zoneEnteredAt = null;
+        this.context.activity.isStationary = false;
+        this.context.activity.stationarySince = null;
+        this.context.activity.lastTransition = { from: prevZone, to: null, at: now };
+      }
+
+      if (this.context.device.location) {
+        this.context.device.location.label = this.context.activity.currentZone;
+      }
+    }
+  }
+
   recordPush(): void {
     this.context.meta.lastAgentPushAt = Date.now() / 1000;
     this.context.meta.pushesToday++;

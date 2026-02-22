@@ -132,6 +132,26 @@ export default {
       respond(true, { activity, trends, decisions });
     });
 
+    // Snapshot RPC — bulk-apply device state for Smart Mode catch-up
+    api.registerGatewayMethod("betterclaw.snapshot", async ({ params, respond }) => {
+      if (!initialized) await initPromise;
+
+      const snapshot = params as {
+        battery?: { level: number; state: string; isLowPowerMode: boolean };
+        location?: { latitude: number; longitude: number };
+        health?: {
+          stepsToday?: number; distanceMeters?: number; heartRateAvg?: number;
+          restingHeartRate?: number; hrv?: number; activeEnergyKcal?: number;
+          sleepDurationSeconds?: number;
+        };
+        geofence?: { type: string; zoneName: string; latitude: number; longitude: number };
+      };
+
+      ctxManager.applySnapshot(snapshot);
+      await ctxManager.save();
+      respond(true, { applied: true });
+    });
+
     // Agent tool
     api.registerTool(createGetContextTool(ctxManager), { optional: true });
 
