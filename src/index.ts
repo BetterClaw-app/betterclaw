@@ -129,7 +129,20 @@ export default {
         timestamp: e.timestamp,
       }));
 
-      respond(true, { activity, trends, decisions });
+      const meta = {
+        pushesToday: state.meta.pushesToday,
+        pushBudgetPerDay: config.pushBudgetPerDay,
+        eventsToday: state.meta.eventsToday,
+      };
+
+      const routines = patterns
+        ? {
+            weekday: patterns.locationRoutines.weekday,
+            weekend: patterns.locationRoutines.weekend,
+          }
+        : null;
+
+      respond(true, { activity, trends, decisions, meta, routines });
     });
 
     // Snapshot RPC — bulk-apply device state for Smart Mode catch-up
