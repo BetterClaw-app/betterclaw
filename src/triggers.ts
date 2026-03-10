@@ -209,20 +209,12 @@ export class ProactiveEngine {
       const message = `[BetterClaw proactive insight — combined signal analysis]\n\n${result.message}`;
 
       try {
-        const cmdResult = await this.api.runtime.system.runCommandWithTimeout(
-          [
-            "openclaw", "agent",
-            "--session-id", "main",
-            "--deliver",
-            "--channel", "telegram",
-            "--message", message,
-          ],
-          { timeoutMs: 30_000 },
-        );
-
-        if (cmdResult.code !== 0) {
-          throw new Error(`agent command exited ${cmdResult.code}: ${cmdResult.stderr?.slice(0, 200)}`);
-        }
+        await this.api.runtime.subagent.run({
+          sessionKey: "main",
+          message,
+          deliver: true,
+          idempotencyKey: `trigger-${trigger.id}-${Math.floor(Date.now() / 1000)}`,
+        });
       } catch (err) {
         this.api.logger.error(
           `betterclaw: trigger push failed: ${err instanceof Error ? err.message : String(err)}`,

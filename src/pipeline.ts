@@ -47,20 +47,12 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
     const message = formatEnrichedMessage(event, context);
 
     try {
-      const result = await api.runtime.system.runCommandWithTimeout(
-        [
-          "openclaw", "agent",
-          "--session-id", "main",
-          "--deliver",
-          "--channel", "telegram",
-          "--message", message,
-        ],
-        { timeoutMs: 30_000 },
-      );
-
-      if (result.code !== 0) {
-        throw new Error(`agent command exited ${result.code}: ${result.stderr?.slice(0, 200)}`);
-      }
+      await api.runtime.subagent.run({
+        sessionKey: "main",
+        message,
+        deliver: true,
+        idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
+      });
 
       api.logger.info(`betterclaw: pushed event ${event.subscriptionId} to agent`);
     } catch (err) {
