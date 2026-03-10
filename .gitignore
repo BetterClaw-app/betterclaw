@@ -3,3 +3,4 @@ dist/
 *.js
 !vitest.config.*
 docs/plans/
+.DS_Store
