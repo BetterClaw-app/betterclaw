@@ -44,21 +44,28 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
     rules.recordFired(event.subscriptionId, event.firedAt);
     context.recordPush();
 
-    const message = formatEnrichedMessage(event, context);
+    // If the iOS tunnel already pushed this event directly to the agent
+    // session (always-push events like geofence/battery-critical), skip
+    // delivery to avoid double-sending. Context was already updated above.
+    if (event.data._alreadyPushed === 1.0) {
+      api.logger.info(`betterclaw: skipped push for ${event.subscriptionId} (already pushed by tunnel)`);
+    } else {
+      const message = formatEnrichedMessage(event, context);
 
-    try {
-      await api.runtime.subagent.run({
-        sessionKey: "main",
-        message,
-        deliver: true,
-        idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
-      });
+      try {
+        await api.runtime.subagent.run({
+          sessionKey: "main",
+          message,
+          deliver: true,
+          idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
+        });
 
-      api.logger.info(`betterclaw: pushed event ${event.subscriptionId} to agent`);
-    } catch (err) {
-      api.logger.error(
-        `betterclaw: failed to push to agent: ${err instanceof Error ? err.message : String(err)}`,
-      );
+        api.logger.info(`betterclaw: pushed event ${event.subscriptionId} to agent`);
+      } catch (err) {
+        api.logger.error(
+          `betterclaw: failed to push to agent: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   } else {
     api.logger.info(`betterclaw: ${decision.action} event ${event.subscriptionId}: ${decision.reason}`);
