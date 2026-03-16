@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ContextManager } from "../src/context.js";
-import type { DeviceEvent } from "../src/types.js";
+import type { DeviceEvent, RuntimeState } from "../src/types.js";
 
 describe("ContextManager", () => {
   let tmpDir: string;
@@ -140,5 +140,25 @@ describe("ContextManager", () => {
     expect(ctx.get().meta.pushesToday).toBe(1);
     ctx.recordPush();
     expect(ctx.get().meta.pushesToday).toBe(2);
+  });
+
+  describe("runtime state", () => {
+    it("defaults to free tier and smartMode off", () => {
+      expect(ctx.getRuntimeState()).toEqual({ tier: "free", smartMode: false });
+    });
+
+    it("updates runtime state from ping", () => {
+      ctx.setRuntimeState({ tier: "premium", smartMode: true });
+      expect(ctx.getRuntimeState()).toEqual({ tier: "premium", smartMode: true });
+    });
+
+    it("runtime state is not persisted", async () => {
+      ctx.setRuntimeState({ tier: "premium", smartMode: true });
+      await ctx.save();
+
+      const ctx2 = new ContextManager(tmpDir);
+      await ctx2.load();
+      expect(ctx2.getRuntimeState()).toEqual({ tier: "free", smartMode: false });
+    });
   });
 });

@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { DeviceContext, DeviceEvent, Patterns } from "./types.js";
+import type { DeviceContext, DeviceEvent, Patterns, RuntimeState } from "./types.js";
 
 const CONTEXT_FILE = "context.json";
 const PATTERNS_FILE = "patterns.json";
@@ -9,6 +9,7 @@ export class ContextManager {
   private contextPath: string;
   private patternsPath: string;
   private context: DeviceContext;
+  private runtimeState: RuntimeState = { tier: "free", smartMode: false };
 
   constructor(stateDir: string) {
     this.contextPath = path.join(stateDir, CONTEXT_FILE);
@@ -196,6 +197,14 @@ export class ContextManager {
         this.context.device.location.label = this.context.activity.currentZone;
       }
     }
+  }
+
+  getRuntimeState(): RuntimeState {
+    return { ...this.runtimeState };
+  }
+
+  setRuntimeState(state: RuntimeState): void {
+    this.runtimeState = { ...state };
   }
 
   recordPush(): void {
