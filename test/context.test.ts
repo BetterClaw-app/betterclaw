@@ -142,6 +142,48 @@ describe("ContextManager", () => {
     expect(ctx.get().meta.pushesToday).toBe(2);
   });
 
+  describe("updatedAt timestamps", () => {
+    it("tracks battery updatedAt", () => {
+      const event: DeviceEvent = {
+        subscriptionId: "default.battery-low",
+        source: "device.battery",
+        data: { level: 0.15 },
+        firedAt: 1740000100,
+      };
+      ctx.updateFromEvent(event);
+      expect(ctx.getTimestamp("battery")).toBe(1740000100);
+    });
+
+    it("tracks location updatedAt from geofence", () => {
+      const event: DeviceEvent = {
+        subscriptionId: "geo-1",
+        source: "geofence.triggered",
+        data: { latitude: 48.1, longitude: 11.5 },
+        metadata: { zoneName: "Home" },
+        firedAt: 1740000200,
+      };
+      ctx.updateFromEvent(event);
+      expect(ctx.getTimestamp("location")).toBe(1740000200);
+      expect(ctx.getTimestamp("activity")).toBe(1740000200);
+    });
+
+    it("tracks health updatedAt", () => {
+      const event: DeviceEvent = {
+        subscriptionId: "default.daily-health",
+        source: "health.summary",
+        data: { stepsToday: 5000 },
+        firedAt: 1740000300,
+      };
+      ctx.updateFromEvent(event);
+      expect(ctx.getTimestamp("health")).toBe(1740000300);
+    });
+
+    it("tracks snapshot updatedAt", () => {
+      ctx.applySnapshot({ battery: { level: 0.8, state: "charging", isLowPowerMode: false } }, 1740000400);
+      expect(ctx.getTimestamp("lastSnapshot")).toBe(1740000400);
+    });
+  });
+
   describe("runtime state", () => {
     it("defaults to free tier and smartMode off", () => {
       expect(ctx.getRuntimeState()).toEqual({ tier: "free", smartMode: false });

@@ -10,6 +10,7 @@ export class ContextManager {
   private patternsPath: string;
   private context: DeviceContext;
   private runtimeState: RuntimeState = { tier: "free", smartMode: false };
+  private timestamps: Record<string, number> = {};
 
   constructor(stateDir: string) {
     this.contextPath = path.join(stateDir, CONTEXT_FILE);
@@ -39,9 +40,13 @@ export class ContextManager {
   async load(): Promise<void> {
     try {
       const raw = await fs.readFile(this.contextPath, "utf8");
-      this.context = JSON.parse(raw) as DeviceContext;
+      const parsed = JSON.parse(raw);
+      this.timestamps = parsed._timestamps ?? {};
+      delete parsed._timestamps;
+      this.context = parsed as DeviceContext;
     } catch {
       this.context = ContextManager.empty();
+      this.timestamps = {};
     }
   }
 
@@ -49,9 +54,14 @@ export class ContextManager {
     return this.context;
   }
 
+  getTimestamp(field: string): number | undefined {
+    return this.timestamps[field];
+  }
+
   async save(): Promise<void> {
     await fs.mkdir(path.dirname(this.contextPath), { recursive: true });
-    await fs.writeFile(this.contextPath, JSON.stringify(this.context, null, 2) + "\n", "utf8");
+    const data = { ...this.context, _timestamps: this.timestamps };
+    await fs.writeFile(this.contextPath, JSON.stringify(data, null, 2) + "\n", "utf8");
   }
 
   updateFromEvent(event: DeviceEvent): void {
@@ -77,6 +87,7 @@ export class ContextManager {
           isLowPowerMode: (data.isLowPowerMode ?? 0) === 1,
           updatedAt: data.updatedAt ?? now,
         };
+        this.timestamps.battery = event.firedAt;
         break;
 
       case "geofence.triggered": {
@@ -113,6 +124,8 @@ export class ContextManager {
           label: this.context.activity.currentZone,
           updatedAt: data.timestamp ?? now,
         };
+        this.timestamps.location = event.firedAt;
+        this.timestamps.activity = event.firedAt;
         break;
       }
 
@@ -128,6 +141,7 @@ export class ContextManager {
             sleepDurationSeconds: data.sleepDurationSeconds ?? this.context.device.health?.sleepDurationSeconds ?? null,
             updatedAt: data.updatedAt ?? now,
           };
+          this.timestamps.health = event.firedAt;
         }
         break;
     }
@@ -142,8 +156,8 @@ export class ContextManager {
       sleepDurationSeconds?: number;
     };
     geofence?: { type: string; zoneName: string; latitude: number; longitude: number };
-  }): void {
-    const now = Date.now() / 1000;
+  }, timestamp?: number): void {
+    const now = timestamp ?? Date.now() / 1000;
 
     if (snapshot.battery) {
       this.context.device.battery = {
@@ -152,6 +166,7 @@ export class ContextManager {
         isLowPowerMode: snapshot.battery.isLowPowerMode,
         updatedAt: now,
       };
+      this.timestamps.battery = now;
     }
 
     if (snapshot.location) {
@@ -162,6 +177,7 @@ export class ContextManager {
         label: this.context.activity.currentZone,
         updatedAt: now,
       };
+      this.timestamps.location = now;
     }
 
     if (snapshot.health) {
@@ -175,6 +191,7 @@ export class ContextManager {
         sleepDurationSeconds: snapshot.health.sleepDurationSeconds ?? null,
         updatedAt: now,
       };
+      this.timestamps.health = now;
     }
 
     if (snapshot.geofence) {
@@ -197,6 +214,8 @@ export class ContextManager {
         this.context.device.location.label = this.context.activity.currentZone;
       }
     }
+
+    this.timestamps.lastSnapshot = now;
   }
 
   getRuntimeState(): RuntimeState {
