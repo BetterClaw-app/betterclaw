@@ -44,7 +44,9 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
       async () => {
         try {
           const auth = await deps.api.runtime.modelAuth.resolveApiKeyForProvider({
-            provider: deps.config.triageModel.split("/")[0] || "openai",
+            provider: deps.config.triageModel.includes("/")
+              ? deps.config.triageModel.split("/")[0]
+              : "openai",
           });
           return auth.apiKey;
         } catch {

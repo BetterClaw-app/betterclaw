@@ -28,7 +28,7 @@ export function buildTriagePrompt(
     location?.label ? `Location: ${location.label}` : null,
     health?.stepsToday != null ? `Steps today: ${health.stepsToday}` : null,
     activity?.currentZone ? `Zone: ${activity.currentZone}` : null,
-    `Time: ${new Date().toLocaleTimeString()}`,
+    `Time: ${String(new Date().getHours()).padStart(2, "0")}:${String(new Date().getMinutes()).padStart(2, "0")}`,
   ]
     .filter(Boolean)
     .join("\n");
@@ -81,7 +81,7 @@ export async function triageEvent(
 
     const baseUrl = config.triageApiBase ?? "https://api.openai.com/v1";
     const model = config.triageModel.includes("/")
-      ? config.triageModel.split("/").pop()!
+      ? config.triageModel.split("/").slice(1).join("/")
       : config.triageModel;
 
     const response = await fetch(`${baseUrl}/chat/completions`, {
