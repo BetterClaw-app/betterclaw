@@ -4,7 +4,6 @@ import { ContextManager } from "./context.js";
 import { createGetContextTool } from "./tools/get-context.js";
 import { EventLog } from "./events.js";
 import { RulesEngine } from "./filter.js";
-import { JudgmentLayer } from "./judgment.js";
 import { PatternEngine } from "./patterns.js";
 import { ProactiveEngine } from "./triggers.js";
 import { processEvent } from "./pipeline.js";
@@ -46,10 +45,9 @@ export default {
     // Context manager (load synchronously — file read deferred to first access)
     const ctxManager = new ContextManager(stateDir);
 
-    // Event log, rules engine, judgment layer
+    // Event log, rules engine
     const eventLog = new EventLog(stateDir);
     const rules = new RulesEngine(config.pushBudgetPerDay);
-    const judgment = new JudgmentLayer(api, config);
 
     // Pipeline dependencies
     const pipelineDeps: PipelineDeps = {
@@ -58,7 +56,6 @@ export default {
       context: ctxManager,
       events: eventLog,
       rules,
-      judgment,
     };
 
     // Track whether async init has completed

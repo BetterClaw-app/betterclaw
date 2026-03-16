@@ -2,7 +2,6 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { ContextManager } from "./context.js";
 import type { EventLog } from "./events.js";
 import type { RulesEngine } from "./filter.js";
-import type { JudgmentLayer } from "./judgment.js";
 import type { DeviceEvent, DeviceContext, PluginConfig } from "./types.js";
 
 export interface PipelineDeps {
@@ -11,11 +10,10 @@ export interface PipelineDeps {
   context: ContextManager;
   events: EventLog;
   rules: RulesEngine;
-  judgment: JudgmentLayer;
 }
 
 export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Promise<void> {
-  const { api, config, context, events, rules, judgment } = deps;
+  const { api, config, context, events, rules } = deps;
 
   // Always update context
   context.updateFromEvent(event);
@@ -23,12 +21,9 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   // Run rules engine
   let decision = rules.evaluate(event, context.get());
 
-  // If ambiguous, run LLM judgment
+  // Ambiguous events are pushed directly (triage not yet wired)
   if (decision.action === "ambiguous") {
-    const result = await judgment.evaluate(event, context.get());
-    decision = result.push
-      ? { action: "push" as const, reason: `llm: ${result.reason}` }
-      : { action: "drop" as const, reason: `llm: ${result.reason}` };
+    decision = { action: "push" as const, reason: `ambiguous — pushed (triage not yet wired)` };
   }
 
   // Log the event + decision
@@ -44,28 +39,21 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
     rules.recordFired(event.subscriptionId, event.firedAt);
     context.recordPush();
 
-    // If the iOS tunnel already pushed this event directly to the agent
-    // session (always-push events like geofence/battery-critical), skip
-    // delivery to avoid double-sending. Context was already updated above.
-    if (event.data._alreadyPushed === 1.0) {
-      api.logger.info(`betterclaw: skipped push for ${event.subscriptionId} (already pushed by tunnel)`);
-    } else {
-      const message = formatEnrichedMessage(event, context);
+    const message = formatEnrichedMessage(event, context);
 
-      try {
-        await api.runtime.subagent.run({
-          sessionKey: "main",
-          message,
-          deliver: true,
-          idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
-        });
+    try {
+      await api.runtime.subagent.run({
+        sessionKey: "main",
+        message,
+        deliver: true,
+        idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
+      });
 
-        api.logger.info(`betterclaw: pushed event ${event.subscriptionId} to agent`);
-      } catch (err) {
-        api.logger.error(
-          `betterclaw: failed to push to agent: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+      api.logger.info(`betterclaw: pushed event ${event.subscriptionId} to agent`);
+    } catch (err) {
+      api.logger.error(
+        `betterclaw: failed to push to agent: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   } else {
     api.logger.info(`betterclaw: ${decision.action} event ${event.subscriptionId}: ${decision.reason}`);
