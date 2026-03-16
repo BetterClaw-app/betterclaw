@@ -17,7 +17,7 @@
 
 ## What is this?
 
-This is the server-side plugin for [BetterClaw](https://github.com/BetterClaw-app/BetterClaw-ios), an iOS app that connects your iPhone's sensors to your [OpenClaw](https://openclaw.dev) AI agent. The app streams device events (location, battery, health, geofences) to your gateway — this plugin decides what to do with them.
+This is the server-side plugin for [BetterClaw](https://betterclaw.app), an iOS app that connects your iPhone's sensors to your [OpenClaw](https://openclaw.dev) AI agent. The app streams device events (location, battery, health, geofences) to your gateway — this plugin decides what to do with them.
 
 The plugin is the **sole event gateway** for all tiers. Smart mode controls filtering depth: OFF = passive context store, ON = full pipeline with rules, LLM triage, and proactive insights.
 
