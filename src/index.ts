@@ -73,29 +73,38 @@ export default {
     const initPromise = (async () => {
       try {
         await ctxManager.load();
-        await reactionTracker.load();
-        const recentEvents = await eventLog.readSince(Date.now() / 1000 - 86400);
-        rules.restoreCooldowns(
-          recentEvents
-            .filter((e) => e.decision === "push")
-            .map((e) => ({ subscriptionId: e.event.subscriptionId, firedAt: e.event.firedAt })),
-        );
         initialized = true;
-        api.logger.info("betterclaw: async init complete");
       } catch (err) {
-        api.logger.error(`betterclaw: init failed: ${err instanceof Error ? err.message : String(err)}`);
+        api.logger.error(`betterclaw: context init failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      try {
+        await reactionTracker.load();
+      } catch (err) {
+        api.logger.warn(`betterclaw: reaction tracker load failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (initialized) {
+        try {
+          const recentEvents = await eventLog.readSince(Date.now() / 1000 - 86400);
+          rules.restoreCooldowns(
+            recentEvents
+              .filter((e) => e.decision === "push")
+              .map((e) => ({ subscriptionId: e.event.subscriptionId, firedAt: e.event.firedAt })),
+          );
+          api.logger.info("betterclaw: async init complete");
+        } catch (err) {
+          api.logger.error(`betterclaw: cooldown restore failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     })();
 
     // Ping health check
     api.registerGatewayMethod("betterclaw.ping", ({ params, respond }) => {
-      const tier = (params as Record<string, unknown>)?.tier as string ?? "free";
+      const validTiers: Array<"free" | "premium" | "premium+"> = ["free", "premium", "premium+"];
+      const rawTier = (params as Record<string, unknown>)?.tier as string;
+      const tier = validTiers.includes(rawTier as any) ? (rawTier as "free" | "premium" | "premium+") : "free";
       const smartMode = (params as Record<string, unknown>)?.smartMode === true;
 
-      ctxManager.setRuntimeState({
-        tier: tier as "free" | "premium" | "premium+",
-        smartMode,
-      });
+      ctxManager.setRuntimeState({ tier, smartMode });
 
       const meta = ctxManager.get().meta;
       respond(true, {
@@ -109,115 +118,131 @@ export default {
 
     // Config RPC — update per-device settings at runtime
     api.registerGatewayMethod("betterclaw.config", async ({ params, respond }) => {
-      const update = params as Record<string, unknown>;
-      const deviceConfig: DeviceConfig = {};
+      // Note: config save runs outside the event queue. Concurrent saves with processEvent
+      // could race on context.json. Accepted risk — config changes are user-initiated and infrequent.
+      try {
+        const update = params as Record<string, unknown>;
+        const deviceConfig: DeviceConfig = {};
 
-      if (typeof update.pushBudgetPerDay === "number") {
-        deviceConfig.pushBudgetPerDay = update.pushBudgetPerDay;
+        if (typeof update.pushBudgetPerDay === "number") {
+          deviceConfig.pushBudgetPerDay = update.pushBudgetPerDay;
+        }
+        if (typeof update.proactiveEnabled === "boolean") {
+          deviceConfig.proactiveEnabled = update.proactiveEnabled;
+        }
+
+        ctxManager.setDeviceConfig(deviceConfig);
+        await ctxManager.save();
+        respond(true, { applied: true });
+      } catch (err) {
+        api.logger.error(`betterclaw.config error: ${err instanceof Error ? err.message : String(err)}`);
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: "config update failed" });
       }
-      if (typeof update.proactiveEnabled === "boolean") {
-        deviceConfig.proactiveEnabled = update.proactiveEnabled;
-      }
-
-      ctxManager.setDeviceConfig(deviceConfig);
-      await ctxManager.save();
-
-      respond(true, { applied: true });
     });
 
     // Context RPC — returns activity, trends, and recent decisions for iOS Context tab
     api.registerGatewayMethod("betterclaw.context", async ({ respond }) => {
-      if (!initialized) await initPromise;
+      try {
+        if (!initialized) await initPromise;
 
-      const state = ctxManager.get();
-      const runtime = ctxManager.getRuntimeState();
-      const timestamps = {
-        battery: ctxManager.getTimestamp("battery"),
-        location: ctxManager.getTimestamp("location"),
-        health: ctxManager.getTimestamp("health"),
-        activity: ctxManager.getTimestamp("activity"),
-        lastSnapshot: ctxManager.getTimestamp("lastSnapshot"),
-      };
-      const patterns = await ctxManager.readPatterns();
-      const recentEntries = await eventLog.readRecent(20);
-      const profile = await loadTriageProfile(stateDir);
+        const state = ctxManager.get();
+        const runtime = ctxManager.getRuntimeState();
+        const timestamps = {
+          battery: ctxManager.getTimestamp("battery") ?? null,
+          location: ctxManager.getTimestamp("location") ?? null,
+          health: ctxManager.getTimestamp("health") ?? null,
+          activity: ctxManager.getTimestamp("activity") ?? null,
+          lastSnapshot: ctxManager.getTimestamp("lastSnapshot") ?? null,
+        };
+        const patterns = await ctxManager.readPatterns();
+        const recentEntries = await eventLog.readRecent(20);
+        const profile = await loadTriageProfile(stateDir);
 
-      const activity = {
-        currentZone: state.activity.currentZone,
-        zoneEnteredAt: state.activity.zoneEnteredAt,
-        lastTransition: state.activity.lastTransition,
-        isStationary: state.activity.isStationary,
-        stationarySince: state.activity.stationarySince,
-      };
+        const activity = {
+          currentZone: state.activity.currentZone,
+          zoneEnteredAt: state.activity.zoneEnteredAt,
+          lastTransition: state.activity.lastTransition,
+          isStationary: state.activity.isStationary,
+          stationarySince: state.activity.stationarySince,
+        };
 
-      const trends = patterns
-        ? {
-            stepsAvg7d: patterns.healthTrends.stepsAvg7d,
-            stepsTrend: patterns.healthTrends.stepsTrend,
-            sleepAvg7d: patterns.healthTrends.sleepAvg7d,
-            sleepTrend: patterns.healthTrends.sleepTrend,
-            restingHrAvg7d: patterns.healthTrends.restingHrAvg7d,
-            restingHrTrend: patterns.healthTrends.restingHrTrend,
-            eventsPerDay7d: patterns.eventStats.eventsPerDay7d,
-            pushesPerDay7d: patterns.eventStats.pushesPerDay7d,
-            dropRate7d: patterns.eventStats.dropRate7d,
-          }
-        : null;
+        const trends = patterns
+          ? {
+              stepsAvg7d: patterns.healthTrends.stepsAvg7d,
+              stepsTrend: patterns.healthTrends.stepsTrend,
+              sleepAvg7d: patterns.healthTrends.sleepAvg7d,
+              sleepTrend: patterns.healthTrends.sleepTrend,
+              restingHrAvg7d: patterns.healthTrends.restingHrAvg7d,
+              restingHrTrend: patterns.healthTrends.restingHrTrend,
+              eventsPerDay7d: patterns.eventStats.eventsPerDay7d,
+              pushesPerDay7d: patterns.eventStats.pushesPerDay7d,
+              dropRate7d: patterns.eventStats.dropRate7d,
+            }
+          : null;
 
-      const decisions = recentEntries.map((e) => ({
-        source: e.event.source,
-        title: e.event.subscriptionId,
-        decision: e.decision,
-        reason: e.reason,
-        timestamp: e.timestamp,
-      }));
+        const decisions = recentEntries.map((e) => ({
+          source: e.event.source,
+          title: e.event.subscriptionId,
+          decision: e.decision,
+          reason: e.reason,
+          timestamp: e.timestamp,
+        }));
 
-      const meta = {
-        pushesToday: state.meta.pushesToday,
-        pushBudgetPerDay: config.pushBudgetPerDay,
-        eventsToday: state.meta.eventsToday,
-        lastSnapshotAt: timestamps.lastSnapshot,
-        lastAnalysisAt: patterns?.computedAt,
-      };
+        const meta = {
+          pushesToday: state.meta.pushesToday,
+          pushBudgetPerDay: config.pushBudgetPerDay,
+          eventsToday: state.meta.eventsToday,
+          lastSnapshotAt: timestamps.lastSnapshot,
+          lastAnalysisAt: patterns?.computedAt,
+        };
 
-      const routines = patterns
-        ? {
-            weekday: patterns.locationRoutines.weekday,
-            weekend: patterns.locationRoutines.weekend,
-          }
-        : null;
+        const routines = patterns
+          ? {
+              weekday: patterns.locationRoutines.weekday,
+              weekend: patterns.locationRoutines.weekend,
+            }
+          : null;
 
-      respond(true, {
-        tier: runtime.tier,
-        smartMode: runtime.smartMode,
-        activity,
-        trends,
-        decisions,
-        meta,
-        routines,
-        timestamps,
-        triageProfile: profile ? { summary: profile.summary, computedAt: profile.computedAt } : null,
-      });
+        respond(true, {
+          tier: runtime.tier,
+          smartMode: runtime.smartMode,
+          activity,
+          trends,
+          decisions,
+          meta,
+          routines,
+          timestamps,
+          triageProfile: profile ? { summary: profile.summary, computedAt: profile.computedAt } : null,
+        });
+      } catch (err) {
+        api.logger.error(`betterclaw.context error: ${err instanceof Error ? err.message : String(err)}`);
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: "context fetch failed" });
+      }
     });
 
     // Snapshot RPC — bulk-apply device state for Smart Mode catch-up
     api.registerGatewayMethod("betterclaw.snapshot", async ({ params, respond }) => {
-      if (!initialized) await initPromise;
+      try {
+        if (!initialized) await initPromise;
 
-      const snapshot = params as {
-        battery?: { level: number; state: string; isLowPowerMode: boolean };
-        location?: { latitude: number; longitude: number };
-        health?: {
-          stepsToday?: number; distanceMeters?: number; heartRateAvg?: number;
-          restingHeartRate?: number; hrv?: number; activeEnergyKcal?: number;
-          sleepDurationSeconds?: number;
+        const snapshot = params as {
+          battery?: { level: number; state: string; isLowPowerMode: boolean };
+          location?: { latitude: number; longitude: number };
+          health?: {
+            stepsToday?: number; distanceMeters?: number; heartRateAvg?: number;
+            restingHeartRate?: number; hrv?: number; activeEnergyKcal?: number;
+            sleepDurationSeconds?: number;
+          };
+          geofence?: { type: string; zoneName: string; latitude: number; longitude: number };
         };
-        geofence?: { type: string; zoneName: string; latitude: number; longitude: number };
-      };
 
-      ctxManager.applySnapshot(snapshot);
-      await ctxManager.save();
-      respond(true, { applied: true });
+        ctxManager.applySnapshot(snapshot);
+        await ctxManager.save();
+        respond(true, { applied: true });
+      } catch (err) {
+        api.logger.error(`betterclaw.snapshot error: ${err instanceof Error ? err.message : String(err)}`);
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: "snapshot apply failed" });
+      }
     });
 
     // Agent tool
