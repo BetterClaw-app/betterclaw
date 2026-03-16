@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { DeviceContext, DeviceEvent, Patterns, RuntimeState } from "./types.js";
+import type { DeviceConfig, DeviceContext, DeviceEvent, Patterns, RuntimeState } from "./types.js";
 
 const CONTEXT_FILE = "context.json";
 const PATTERNS_FILE = "patterns.json";
@@ -11,6 +11,7 @@ export class ContextManager {
   private context: DeviceContext;
   private runtimeState: RuntimeState = { tier: "free", smartMode: false };
   private timestamps: Record<string, number> = {};
+  private deviceConfig: DeviceConfig = {};
 
   constructor(stateDir: string) {
     this.contextPath = path.join(stateDir, CONTEXT_FILE);
@@ -48,6 +49,13 @@ export class ContextManager {
       this.context = ContextManager.empty();
       this.timestamps = {};
     }
+    try {
+      const configPath = path.join(path.dirname(this.contextPath), "device-config.json");
+      const rawConfig = await fs.readFile(configPath, "utf8");
+      this.deviceConfig = JSON.parse(rawConfig) as DeviceConfig;
+    } catch {
+      this.deviceConfig = {};
+    }
   }
 
   get(): DeviceContext {
@@ -62,6 +70,8 @@ export class ContextManager {
     await fs.mkdir(path.dirname(this.contextPath), { recursive: true });
     const data = { ...this.context, _timestamps: this.timestamps };
     await fs.writeFile(this.contextPath, JSON.stringify(data, null, 2) + "\n", "utf8");
+    const configPath = path.join(path.dirname(this.contextPath), "device-config.json");
+    await fs.writeFile(configPath, JSON.stringify(this.deviceConfig, null, 2) + "\n", "utf8");
   }
 
   updateFromEvent(event: DeviceEvent): void {
@@ -224,6 +234,14 @@ export class ContextManager {
 
   setRuntimeState(state: RuntimeState): void {
     this.runtimeState = { ...state };
+  }
+
+  getDeviceConfig(): DeviceConfig {
+    return { ...this.deviceConfig };
+  }
+
+  setDeviceConfig(update: DeviceConfig): void {
+    this.deviceConfig = { ...this.deviceConfig, ...update };
   }
 
   recordPush(): void {

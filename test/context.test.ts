@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { ContextManager } from "../src/context.js";
-import type { DeviceEvent, RuntimeState } from "../src/types.js";
+import type { DeviceConfig, DeviceEvent, RuntimeState } from "../src/types.js";
 
 describe("ContextManager", () => {
   let tmpDir: string;
@@ -181,6 +181,32 @@ describe("ContextManager", () => {
     it("tracks snapshot updatedAt", () => {
       ctx.applySnapshot({ battery: { level: 0.8, state: "charging", isLowPowerMode: false } }, 1740000400);
       expect(ctx.getTimestamp("lastSnapshot")).toBe(1740000400);
+    });
+  });
+
+  describe("device config", () => {
+    it("returns empty config by default", () => {
+      expect(ctx.getDeviceConfig()).toEqual({});
+    });
+
+    it("applies device config from RPC", () => {
+      ctx.setDeviceConfig({ pushBudgetPerDay: 5 });
+      expect(ctx.getDeviceConfig()).toEqual({ pushBudgetPerDay: 5 });
+    });
+
+    it("shallow merges config updates", () => {
+      ctx.setDeviceConfig({ pushBudgetPerDay: 5 });
+      ctx.setDeviceConfig({ proactiveEnabled: false });
+      expect(ctx.getDeviceConfig()).toEqual({ pushBudgetPerDay: 5, proactiveEnabled: false });
+    });
+
+    it("persists device config across restarts", async () => {
+      ctx.setDeviceConfig({ pushBudgetPerDay: 7 });
+      await ctx.save();
+
+      const ctx2 = new ContextManager(tmpDir);
+      await ctx2.load();
+      expect(ctx2.getDeviceConfig()).toEqual({ pushBudgetPerDay: 7 });
     });
   });
 
