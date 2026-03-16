@@ -273,7 +273,7 @@ export default {
     api.registerService({
       id: "betterclaw-engine",
       start: () => {
-        patternEngine.startSchedule();
+        patternEngine.startSchedule(config.analysisHour);
         proactiveEngine.startSchedule();
         api.logger.info("betterclaw: background services started");
       },

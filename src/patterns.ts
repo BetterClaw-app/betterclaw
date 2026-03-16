@@ -2,13 +2,11 @@ import type { ContextManager } from "./context.js";
 import type { EventLog } from "./events.js";
 import type { EventLogEntry, Patterns } from "./types.js";
 
-const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
-
 export class PatternEngine {
   private context: ContextManager;
   private events: EventLog;
   private windowDays: number;
-  private interval: ReturnType<typeof setInterval> | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(context: ContextManager, events: EventLog, windowDays: number) {
     this.context = context;
@@ -16,19 +14,38 @@ export class PatternEngine {
     this.windowDays = windowDays;
   }
 
-  startSchedule(): void {
-    // Run immediately, then every 6 hours
+  startSchedule(analysisHour: number, dailyCallback?: () => Promise<void>): void {
+    // Run initial compute on startup
     void this.compute().catch(() => {});
-    this.interval = setInterval(() => {
-      void this.compute().catch(() => {});
-    }, SIX_HOURS_MS);
-    this.interval.unref?.();
+
+    this.scheduleNext(analysisHour, dailyCallback);
+  }
+
+  private scheduleNext(analysisHour: number, dailyCallback?: () => Promise<void>): void {
+    const now = new Date();
+    const target = new Date(now);
+    target.setHours(analysisHour, 0, 0, 0);
+    if (target <= now) {
+      target.setDate(target.getDate() + 1);
+    }
+    const msUntil = target.getTime() - now.getTime();
+
+    this.timer = setTimeout(async () => {
+      try {
+        await this.compute();
+        if (dailyCallback) await dailyCallback();
+      } catch {
+        // ignore errors, will retry next day
+      }
+      this.scheduleNext(analysisHour, dailyCallback);
+    }, msUntil);
+    this.timer.unref?.();
   }
 
   stopSchedule(): void {
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
     }
   }
 
