@@ -28,6 +28,7 @@ export class ReactionTracker {
   }
 
   async save(): Promise<void> {
+    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
     const lines = this.reactions.map((r) => JSON.stringify(r)).join("\n");
     await fs.writeFile(this.filePath, lines + "\n", "utf-8");
   }
@@ -39,7 +40,10 @@ export class ReactionTracker {
         .trim()
         .split("\n")
         .filter(Boolean)
-        .map((line) => JSON.parse(line) as ReactionEntry);
+        .flatMap((line) => {
+          try { return [JSON.parse(line) as ReactionEntry]; }
+          catch { return []; }
+        });
     } catch {
       this.reactions = [];
     }
