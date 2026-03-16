@@ -9,7 +9,10 @@ import { ProactiveEngine } from "./triggers.js";
 import { processEvent } from "./pipeline.js";
 import type { PipelineDeps } from "./pipeline.js";
 import { BETTERCLAW_COMMANDS, mergeAllowCommands } from "./cli.js";
-import { loadTriageProfile } from "./learner.js";
+import { loadTriageProfile, runLearner } from "./learner.js";
+import { ReactionTracker } from "./reactions.js";
+import * as os from "node:os";
+import * as path from "node:path";
 
 export type { PluginConfig } from "./types.js";
 
@@ -47,9 +50,10 @@ export default {
     // Context manager (load synchronously — file read deferred to first access)
     const ctxManager = new ContextManager(stateDir);
 
-    // Event log, rules engine
+    // Event log, rules engine, reaction tracker
     const eventLog = new EventLog(stateDir);
     const rules = new RulesEngine(config.pushBudgetPerDay);
+    const reactionTracker = new ReactionTracker(stateDir);
 
     // Pipeline dependencies
     const pipelineDeps: PipelineDeps = {
@@ -58,6 +62,8 @@ export default {
       context: ctxManager,
       events: eventLog,
       rules,
+      reactions: reactionTracker,
+      stateDir,
     };
 
     const pluginVersion = "2.0.0";
@@ -67,6 +73,7 @@ export default {
     const initPromise = (async () => {
       try {
         await ctxManager.load();
+        await reactionTracker.load();
         const recentEvents = await eventLog.readSince(Date.now() / 1000 - 86400);
         rules.restoreCooldowns(
           recentEvents
@@ -295,7 +302,24 @@ export default {
     api.registerService({
       id: "betterclaw-engine",
       start: () => {
-        patternEngine.startSchedule(config.analysisHour);
+        patternEngine.startSchedule(config.analysisHour, async () => {
+          // Run learner after patterns (only if smartMode ON)
+          if (ctxManager.getRuntimeState().smartMode) {
+            try {
+              await runLearner({
+                stateDir,
+                workspaceDir: path.join(os.homedir(), ".openclaw", "workspace"),
+                context: ctxManager,
+                events: eventLog,
+                reactions: reactionTracker,
+                api,
+              });
+              api.logger.info("betterclaw: daily learner completed");
+            } catch (err) {
+              api.logger.error(`betterclaw: daily learner failed: ${err}`);
+            }
+          }
+        });
         proactiveEngine.startSchedule();
         api.logger.info("betterclaw: background services started");
       },
