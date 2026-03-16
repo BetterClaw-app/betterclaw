@@ -1,5 +1,5 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import type { PluginConfig } from "./types.js";
+import type { PluginConfig, DeviceConfig } from "./types.js";
 import { ContextManager } from "./context.js";
 import { createGetContextTool } from "./tools/get-context.js";
 import { EventLog } from "./events.js";
@@ -96,6 +96,24 @@ export default {
         pushesToday: meta.pushesToday,
         budgetRemaining: Math.max(0, config.pushBudgetPerDay - meta.pushesToday),
       });
+    });
+
+    // Config RPC — update per-device settings at runtime
+    api.registerGatewayMethod("betterclaw.config", async ({ params, respond }) => {
+      const update = params as Record<string, unknown>;
+      const deviceConfig: DeviceConfig = {};
+
+      if (typeof update.pushBudgetPerDay === "number") {
+        deviceConfig.pushBudgetPerDay = update.pushBudgetPerDay;
+      }
+      if (typeof update.proactiveEnabled === "boolean") {
+        deviceConfig.proactiveEnabled = update.proactiveEnabled;
+      }
+
+      ctxManager.setDeviceConfig(deviceConfig);
+      await ctxManager.save();
+
+      respond(true, { applied: true });
     });
 
     // Context RPC — returns activity, trends, and recent decisions for iOS Context tab
