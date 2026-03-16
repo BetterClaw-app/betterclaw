@@ -2,7 +2,10 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { ContextManager } from "./context.js";
 import type { EventLog } from "./events.js";
 import type { RulesEngine } from "./filter.js";
+import type { ReactionTracker } from "./reactions.js";
 import type { DeviceEvent, DeviceContext, PluginConfig } from "./types.js";
+import { triageEvent } from "./triage.js";
+import { loadTriageProfile } from "./learner.js";
 
 export interface PipelineDeps {
   api: OpenClawPluginApi;
@@ -10,6 +13,8 @@ export interface PipelineDeps {
   context: ContextManager;
   events: EventLog;
   rules: RulesEngine;
+  reactions: ReactionTracker;
+  stateDir: string;
 }
 
 export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Promise<void> {
@@ -26,11 +31,52 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   }
 
   // Run rules engine
-  let decision = rules.evaluate(event, context.get());
+  const decision = rules.evaluate(event, context.get());
 
-  // Ambiguous events are pushed directly (triage not yet wired)
+  // Ambiguous events go through LLM triage
   if (decision.action === "ambiguous") {
-    decision = { action: "push" as const, reason: `ambiguous — pushed (triage not yet wired)` };
+    const profile = await loadTriageProfile(deps.stateDir);
+    const triageResult = await triageEvent(
+      event,
+      deps.context,
+      profile,
+      { triageModel: deps.config.triageModel, triageApiBase: deps.config.triageApiBase },
+      async () => {
+        try {
+          const auth = await deps.api.runtime.modelAuth.resolveApiKeyForProvider({
+            provider: deps.config.triageModel.split("/")[0] || "openai",
+          });
+          return auth.apiKey;
+        } catch {
+          return undefined;
+        }
+      },
+    );
+
+    if (triageResult.push) {
+      deps.reactions.recordPush({
+        idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
+        subscriptionId: event.subscriptionId,
+        source: event.source,
+        pushedAt: Date.now() / 1000,
+      });
+      await pushToAgent(deps, event, `triage: ${triageResult.reason}`);
+    }
+
+    await events.append({
+      event,
+      decision: triageResult.push ? "push" : "drop",
+      reason: `triage: ${triageResult.reason}`,
+      timestamp: Date.now() / 1000,
+    });
+
+    if (triageResult.push) {
+      rules.recordFired(event.subscriptionId, event.firedAt);
+      context.recordPush();
+    }
+
+    await context.save();
+    return;
   }
 
   // Log the event + decision
@@ -46,28 +92,40 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
     rules.recordFired(event.subscriptionId, event.firedAt);
     context.recordPush();
 
-    const message = formatEnrichedMessage(event, context);
+    // Record reaction for all pushes
+    deps.reactions.recordPush({
+      idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
+      subscriptionId: event.subscriptionId,
+      source: event.source,
+      pushedAt: Date.now() / 1000,
+    });
 
-    try {
-      await api.runtime.subagent.run({
-        sessionKey: "main",
-        message,
-        deliver: true,
-        idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
-      });
-
-      api.logger.info(`betterclaw: pushed event ${event.subscriptionId} to agent`);
-    } catch (err) {
-      api.logger.error(
-        `betterclaw: failed to push to agent: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
+    await pushToAgent(deps, event, decision.reason);
   } else {
     api.logger.info(`betterclaw: ${decision.action} event ${event.subscriptionId}: ${decision.reason}`);
   }
 
   // Persist context
   await context.save();
+}
+
+async function pushToAgent(deps: PipelineDeps, event: DeviceEvent, reason: string): Promise<void> {
+  const message = formatEnrichedMessage(event, deps.context);
+  const idempotencyKey = `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`;
+
+  try {
+    await deps.api.runtime.subagent.run({
+      sessionKey: "main",
+      message,
+      deliver: true,
+      idempotencyKey,
+    });
+    deps.api.logger.info(`betterclaw: pushed event ${event.subscriptionId} to agent`);
+  } catch (err) {
+    deps.api.logger.error(
+      `betterclaw: failed to push to agent: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 function formatEnrichedMessage(event: DeviceEvent, context: ContextManager): string {
