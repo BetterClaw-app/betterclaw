@@ -78,9 +78,11 @@ export class ContextManager {
     const now = event.firedAt;
     const data = event.data;
 
-    // Reset daily counters at midnight UTC
-    const lastDay = Math.floor(this.context.meta.lastEventAt / 86400);
-    const currentDay = Math.floor(now / 86400);
+    // Reset daily counters at local midnight
+    const lastDate = new Date(this.context.meta.lastEventAt * 1000);
+    const currentDate = new Date(now * 1000);
+    const lastDay = `${lastDate.getFullYear()}-${lastDate.getMonth()}-${lastDate.getDate()}`;
+    const currentDay = `${currentDate.getFullYear()}-${currentDate.getMonth()}-${currentDate.getDate()}`;
     if (lastDay !== currentDay && this.context.meta.lastEventAt > 0) {
       this.context.meta.eventsToday = 0;
       this.context.meta.pushesToday = 0;
