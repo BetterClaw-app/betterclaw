@@ -25,8 +25,8 @@ function resolveConfig(raw: Record<string, unknown> | undefined): PluginConfig {
   return {
     triageModel: (cfg.triageModel as string) ?? (cfg.llmModel as string) ?? "openai/gpt-4o-mini",
     triageApiBase: (cfg.triageApiBase as string) ?? undefined,
-    pushBudgetPerDay: typeof cfg.pushBudgetPerDay === "number" ? cfg.pushBudgetPerDay : 10,
-    patternWindowDays: typeof cfg.patternWindowDays === "number" ? cfg.patternWindowDays : 14,
+    pushBudgetPerDay: typeof cfg.pushBudgetPerDay === "number" && cfg.pushBudgetPerDay > 0 ? cfg.pushBudgetPerDay : 10,
+    patternWindowDays: typeof cfg.patternWindowDays === "number" && cfg.patternWindowDays > 0 ? cfg.patternWindowDays : 14,
     proactiveEnabled: typeof cfg.proactiveEnabled === "boolean" ? cfg.proactiveEnabled : true,
     analysisHour: typeof cfg.analysisHour === "number" ? Math.max(0, Math.min(23, cfg.analysisHour)) : 5,
   };

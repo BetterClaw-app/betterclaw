@@ -163,9 +163,3 @@ export interface RuntimeState {
   tier: "free" | "premium" | "premium+";
   smartMode: boolean;
 }
-
-// Timestamps for context fields
-export interface TimestampedValue<T> {
-  value: T;
-  updatedAt: number;
-}
