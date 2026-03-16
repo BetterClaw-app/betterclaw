@@ -26,7 +26,10 @@ export class EventLog {
         .trim()
         .split("\n")
         .filter((line) => line.length > 0)
-        .map((line) => JSON.parse(line) as EventLogEntry);
+        .flatMap((line) => {
+          try { return [JSON.parse(line) as EventLogEntry]; }
+          catch { return []; }
+        });
     } catch {
       return [];
     }
@@ -51,7 +54,9 @@ export class EventLog {
     const removed = entries.length - kept.length;
 
     const content = kept.map((e) => JSON.stringify(e)).join("\n") + "\n";
-    await fs.writeFile(this.filePath, content, "utf8");
+    const tmpPath = this.filePath + ".tmp";
+    await fs.writeFile(tmpPath, content, "utf8");
+    await fs.rename(tmpPath, this.filePath);
 
     return removed;
   }
