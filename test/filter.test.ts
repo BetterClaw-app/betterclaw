@@ -73,7 +73,7 @@ describe("RulesEngine", () => {
     expect(decision.action).toBe("push");
   });
 
-  it("defers daily health outside morning window", () => {
+  it("drops daily health outside morning window", () => {
     const noonEpoch = new Date("2026-02-19T12:00:00Z").getTime() / 1000;
     const event: DeviceEvent = {
       subscriptionId: "default.daily-health",
@@ -82,7 +82,7 @@ describe("RulesEngine", () => {
       firedAt: noonEpoch,
     };
     const decision = rules.evaluate(event, emptyContext);
-    expect(decision.action).toBe("defer");
+    expect(decision.action).toBe("drop");
   });
 
   it("drops when push budget is exhausted (configurable)", () => {

@@ -70,14 +70,13 @@ export interface DeviceContext {
 export type FilterDecision =
   | { action: "push"; reason: string }
   | { action: "drop"; reason: string }
-  | { action: "defer"; reason: string }
   | { action: "ambiguous"; reason: string };
 
 // -- Event log entry --
 
 export interface EventLogEntry {
   event: DeviceEvent;
-  decision: "push" | "drop" | "defer" | "stored" | "received";
+  decision: "push" | "drop" | "stored" | "received";
   reason: string;
   timestamp: number;
 }
