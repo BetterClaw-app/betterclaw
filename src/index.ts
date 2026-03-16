@@ -8,6 +8,7 @@ import { PatternEngine } from "./patterns.js";
 import { ProactiveEngine } from "./triggers.js";
 import { processEvent } from "./pipeline.js";
 import type { PipelineDeps } from "./pipeline.js";
+import { BETTERCLAW_COMMANDS, mergeAllowCommands } from "./cli.js";
 
 export type { PluginConfig } from "./types.js";
 
@@ -282,5 +283,52 @@ export default {
         api.logger.info("betterclaw: background services stopped");
       },
     });
+
+    // CLI setup command
+    api.registerCli(
+      ({ program }) => {
+        const cmd = program.command("betterclaw").description("BetterClaw plugin management");
+
+        cmd
+          .command("setup")
+          .description("Configure gateway allowedCommands for BetterClaw")
+          .option("--dry-run", "Preview changes without writing")
+          .action(async (opts: { dryRun?: boolean }) => {
+            try {
+              const currentConfig = await api.runtime.config.loadConfig();
+              const existing: string[] =
+                (currentConfig as any)?.gateway?.nodes?.allowCommands ?? [];
+              const merged = mergeAllowCommands(existing, BETTERCLAW_COMMANDS);
+              const added = merged.length - existing.length;
+
+              if (opts.dryRun) {
+                console.log(`[dry-run] Would set ${merged.length} allowedCommands (${added} new)`);
+                if (added > 0) {
+                  const newCmds = merged.filter((c) => !existing.includes(c));
+                  console.log(`New commands: ${newCmds.join(", ")}`);
+                }
+                return;
+              }
+
+              if (added === 0) {
+                console.log(`All ${BETTERCLAW_COMMANDS.length} BetterClaw commands already configured.`);
+                return;
+              }
+
+              const configObj = { ...currentConfig } as any;
+              configObj.gateway = configObj.gateway ?? {};
+              configObj.gateway.nodes = configObj.gateway.nodes ?? {};
+              configObj.gateway.nodes.allowCommands = merged;
+              await api.runtime.config.writeConfigFile(configObj);
+
+              console.log(`Added ${added} new commands (${merged.length} total). Restart gateway to apply.`);
+            } catch (err) {
+              console.error(`Failed to update config: ${err}`);
+              process.exit(1);
+            }
+          });
+      },
+      { commands: ["betterclaw"] },
+    );
   },
 };
