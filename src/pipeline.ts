@@ -76,6 +76,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
     }
 
     await context.save();
+    await deps.reactions.save();
     return;
   }
 
@@ -105,8 +106,9 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
     api.logger.info(`betterclaw: ${decision.action} event ${event.subscriptionId}: ${decision.reason}`);
   }
 
-  // Persist context
+  // Persist context and reactions
   await context.save();
+  await deps.reactions.save();
 }
 
 async function pushToAgent(deps: PipelineDeps, event: DeviceEvent, reason: string): Promise<void> {

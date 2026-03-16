@@ -221,7 +221,7 @@ export default {
     });
 
     // Agent tool
-    api.registerTool(createGetContextTool(ctxManager), { optional: true });
+    api.registerTool(createGetContextTool(ctxManager, stateDir), { optional: true });
 
     // Auto-reply command
     api.registerCommand({
@@ -291,6 +291,7 @@ export default {
         });
       } catch (err) {
         api.logger.error(`betterclaw.event handler error: ${err instanceof Error ? err.message : String(err)}`);
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: "event processing failed" });
       }
     });
 

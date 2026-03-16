@@ -1,8 +1,8 @@
 import { Type } from "@sinclair/typebox";
 import type { ContextManager } from "../context.js";
-import type { TriageProfile } from "../types.js";
+import { loadTriageProfile } from "../learner.js";
 
-export function createGetContextTool(ctx: ContextManager, profile?: TriageProfile | null) {
+export function createGetContextTool(ctx: ContextManager, stateDir?: string) {
   return {
     name: "get_context",
     label: "Get Device Context",
@@ -49,6 +49,7 @@ export function createGetContextTool(ctx: ContextManager, profile?: TriageProfil
         };
       }
 
+      const profile = stateDir ? await loadTriageProfile(stateDir) : null;
       result.triageProfile = profile ? { summary: profile.summary, computedAt: profile.computedAt } : null;
 
       return {

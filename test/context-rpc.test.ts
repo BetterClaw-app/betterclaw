@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { EventLog } from "../src/events.js";
 import { ContextManager } from "../src/context.js";
 import { createGetContextTool } from "../src/tools/get-context.js";
-import type { EventLogEntry, TriageProfile } from "../src/types.js";
+import type { EventLogEntry } from "../src/types.js";
 
 function makeEntry(i: number, decision: "push" | "drop" | "defer" = "push"): EventLogEntry {
   return {
@@ -236,8 +236,8 @@ describe("get_context tool", () => {
     expect(parsed.device.battery.updatedAt).toBe(1740000100);
   });
 
-  it("includes triage profile summary when provided", async () => {
-    const profile: TriageProfile = {
+  it("includes triage profile summary when profile exists on disk", async () => {
+    const profile = {
       eventPreferences: {},
       lifeContext: "test",
       interruptionTolerance: "normal",
@@ -247,7 +247,8 @@ describe("get_context tool", () => {
       summary: "Test profile",
       computedAt: 1740000000,
     };
-    const tool = createGetContextTool(ctx, profile);
+    await fs.writeFile(path.join(tmpDir, "triage-profile.json"), JSON.stringify(profile), "utf-8");
+    const tool = createGetContextTool(ctx, tmpDir);
     const result = await tool.execute("test", {});
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.triageProfile.summary).toBe("Test profile");
