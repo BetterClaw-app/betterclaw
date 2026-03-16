@@ -83,7 +83,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   // Log the event + decision
   await events.append({
     event,
-    decision: decision.action === "push" ? "push" : decision.action === "defer" ? "defer" : "drop",
+    decision: decision.action === "push" ? "push" : "drop",
     reason: decision.reason,
     timestamp: Date.now() / 1000,
   });

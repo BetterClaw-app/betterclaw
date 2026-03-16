@@ -65,7 +65,7 @@ export class RulesEngine {
       if (hour >= 6 && hour <= 10) {
         return { action: "push", reason: "daily health summary — within morning window" };
       }
-      return { action: "defer", reason: "daily health summary — outside morning window" };
+      return { action: "drop", reason: "daily health summary — outside morning window" };
     }
 
     // Push budget check
