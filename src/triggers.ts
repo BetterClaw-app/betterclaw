@@ -189,6 +189,9 @@ export class ProactiveEngine {
   }
 
   async checkAll(): Promise<void> {
+    if (!this.context.getRuntimeState().smartMode) {
+      return;
+    }
     const ctx = this.context.get();
     const patterns = (await this.context.readPatterns()) ?? (await import("./patterns.js")).emptyPatterns();
 
