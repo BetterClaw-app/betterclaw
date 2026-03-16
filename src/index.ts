@@ -58,6 +58,8 @@ export default {
       rules,
     };
 
+    const pluginVersion = "2.0.0";
+
     // Track whether async init has completed
     let initialized = false;
     const initPromise = (async () => {
@@ -77,8 +79,23 @@ export default {
     })();
 
     // Ping health check
-    api.registerGatewayMethod("betterclaw.ping", ({ respond }) => {
-      respond(true, { ok: true, version: "1.0.0", initialized });
+    api.registerGatewayMethod("betterclaw.ping", ({ params, respond }) => {
+      const tier = (params as Record<string, unknown>)?.tier as string ?? "free";
+      const smartMode = (params as Record<string, unknown>)?.smartMode === true;
+
+      ctxManager.setRuntimeState({
+        tier: tier as "free" | "premium" | "premium+",
+        smartMode,
+      });
+
+      const meta = ctxManager.get().meta;
+      respond(true, {
+        ok: true,
+        version: pluginVersion,
+        initialized,
+        pushesToday: meta.pushesToday,
+        budgetRemaining: Math.max(0, config.pushBudgetPerDay - meta.pushesToday),
+      });
     });
 
     // Context RPC — returns activity, trends, and recent decisions for iOS Context tab
