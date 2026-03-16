@@ -16,7 +16,13 @@
 
 **`src/index.ts`** — Remove the `eventLog.append({ decision: "received" })` call before `respond()` in the `betterclaw.event` handler. The "received" safety log was creating duplicate entries for every event, inflating stats and polluting the Context tab. There is no recovery code that reads "received" entries, so the safety guarantee was theoretical.
 
-**`src/pipeline.ts`** — Reorder `recordFired()` and `recordPush()` to happen AFTER successful `pushToAgent()`, not before. This applies to both the direct-push path and the triage-push path. If `pushToAgent` fails, the budget is not consumed and the cooldown is not set, allowing the next occurrence to retry naturally. Unify ordering: both paths should follow the same sequence: push → record reaction → record fired → record push → log.
+**`src/pipeline.ts`** — Two changes:
+
+1. Make `pushToAgent` return a `boolean` indicating success/failure instead of swallowing errors silently. Currently it catches all errors and returns void — the caller can never know if the push actually succeeded.
+
+2. In both the direct-push and triage-push paths, move `recordFired()`, `recordPush()`, and `reactions.recordPush()` to happen ONLY after `pushToAgent` returns `true`. Unify both paths to follow: push → if success → record reaction → record fired → record push → log as "push". If push fails → log as "drop" with reason "push failed".
+
+3. Remove the `decision.action === "defer" ? "defer" :` ternary branch from the event log decision mapping (line 86), since "defer" is being removed.
 
 **`src/filter.ts`** — Change daily health summary outside morning window from `{ action: "defer" }` to `{ action: "drop", reason: "daily health summary — outside morning window" }`. Remove "defer" from the `FilterDecision` type union.
 
@@ -223,3 +229,9 @@ if (deviceConfig.proactiveEnabled === false) return;
 ```
 
 This runs AFTER the smartMode check (which is already there), so both conditions must be true for triggers to fire.
+
+---
+
+## Excluded Issues
+
+**#23 (reactions.rotate() never called in pipeline):** `rotate()` is already called inside `runLearner()` at the end of each daily analysis. Between daily runs, reactions accumulate for up to 24 hours — this is acceptable since the array is bounded by the number of push events per day (max ~10 given budget). No fix needed.
