@@ -105,7 +105,7 @@ export async function triageEvent(
                 reason: { type: "string" },
                 priority: { type: "string", enum: ["low", "normal", "high"] },
               },
-              required: ["push", "reason"],
+              required: ["push", "reason", "priority"],
               additionalProperties: false,
             },
           },
