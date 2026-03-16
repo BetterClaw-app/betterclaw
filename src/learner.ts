@@ -7,7 +7,10 @@ import type { ReactionTracker } from "./reactions.js";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 
 export async function readMemorySummary(workspaceDir: string, date: Date): Promise<string | null> {
-  const dateStr = date.toISOString().split("T")[0];
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const dateStr = `${y}-${m}-${d}`;
   const memoryPath = path.join(workspaceDir, "memory", `${dateStr}.md`);
   try {
     return await fs.readFile(memoryPath, "utf-8");
@@ -80,10 +83,13 @@ export function parseTriageProfile(text: string): TriageProfile | null {
     const cleaned = text.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
     const parsed = JSON.parse(cleaned);
     if (!parsed.summary || !parsed.interruptionTolerance) return null;
+    const validTolerances = ["low", "normal", "high"];
     return {
       eventPreferences: parsed.eventPreferences ?? {},
       lifeContext: parsed.lifeContext ?? "",
-      interruptionTolerance: parsed.interruptionTolerance,
+      interruptionTolerance: validTolerances.includes(parsed.interruptionTolerance)
+        ? parsed.interruptionTolerance
+        : "normal",
       timePreferences: parsed.timePreferences ?? {},
       sensitivityThresholds: parsed.sensitivityThresholds ?? {},
       locationRules: parsed.locationRules ?? {},
@@ -98,13 +104,14 @@ export function parseTriageProfile(text: string): TriageProfile | null {
 export async function loadTriageProfile(stateDir: string): Promise<TriageProfile | null> {
   try {
     const content = await fs.readFile(path.join(stateDir, "triage-profile.json"), "utf-8");
-    return JSON.parse(content) as TriageProfile;
+    return parseTriageProfile(content);
   } catch {
     return null;
   }
 }
 
 export async function saveTriageProfile(stateDir: string, profile: TriageProfile): Promise<void> {
+  await fs.mkdir(stateDir, { recursive: true });
   await fs.writeFile(path.join(stateDir, "triage-profile.json"), JSON.stringify(profile, null, 2), "utf-8");
 }
 
@@ -120,8 +127,11 @@ export interface RunLearnerDeps {
 export async function runLearner(deps: RunLearnerDeps): Promise<void> {
   const { stateDir, workspaceDir, context, events, reactions, api } = deps;
 
-  // 1. Read memory summary
-  const memorySummary = await readMemorySummary(workspaceDir, new Date());
+  // 1. Read yesterday's memory summary (learner runs at 5am, today's barely exists)
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const memorySummary = await readMemorySummary(workspaceDir, yesterday)
+    ?? await readMemorySummary(workspaceDir, new Date());
 
   // 2. Read last 24h events
   const recentEvents = await events.readSince(Date.now() / 1000 - 86400);
@@ -136,45 +146,60 @@ export async function runLearner(deps: RunLearnerDeps): Promise<void> {
   const patterns = await context.readPatterns();
   const patternsJson = JSON.stringify(patterns ?? {});
 
-  // 6. Build prompt
+  // 6. Build prompt (include JSON-only instruction since extraSystemPrompt is not a valid SDK param)
   const prompt = buildLearnerPrompt({
     memorySummary,
     recentEvents,
     reactions: recentReactions,
     previousProfile,
     patternsJson,
-  });
+  }) + "\n\nIMPORTANT: Respond with ONLY a JSON triage profile object. Do NOT call any tools.";
 
-  // 7. Run subagent
-  const { runId } = await api.runtime.subagent.run({
-    sessionKey: "betterclaw-learn",
-    message: prompt,
-    deliver: false,
-    extraSystemPrompt: "Respond with ONLY a JSON triage profile. Do NOT call any tools.",
-  });
+  // 7. Clean up any stale session from previous failed run
+  try { await api.runtime.subagent.deleteSession({ sessionKey: "betterclaw-learn" }); } catch { /* ignore */ }
 
-  // 8. Wait for completion
-  await api.runtime.subagent.waitForRun({ runId, timeoutMs: 60000 });
+  // 8. Run subagent with try/finally for session cleanup
+  let newProfile: TriageProfile | null = null;
+  try {
+    const { runId } = await api.runtime.subagent.run({
+      sessionKey: "betterclaw-learn",
+      message: prompt,
+      deliver: false,
+      idempotencyKey: `betterclaw-learn-${Date.now()}`,
+    });
 
-  // 9. Read response
-  const messages = await api.runtime.subagent.getSessionMessages({
-    sessionKey: "betterclaw-learn",
-    limit: 5,
-  });
+    // 9. Wait for completion
+    await api.runtime.subagent.waitForRun({ runId, timeoutMs: 60000 });
 
-  // 10. Parse last assistant message
-  const lastAssistant = messages.filter((m: any) => m.role === "assistant").pop();
-  const newProfile = lastAssistant ? parseTriageProfile(lastAssistant.content) : null;
+    // 10. Read response
+    const messages = await api.runtime.subagent.getSessionMessages({
+      sessionKey: "betterclaw-learn",
+      limit: 5,
+    });
 
-  // 11. Save if valid, otherwise keep previous
+    // 11. Parse last assistant message — handle both string and content-block formats
+    const lastAssistant = messages.filter((m: any) => m.role === "assistant").pop();
+    if (lastAssistant) {
+      const content = typeof lastAssistant.content === "string"
+        ? lastAssistant.content
+        : Array.isArray(lastAssistant.content)
+          ? lastAssistant.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("")
+          : null;
+      if (content) {
+        newProfile = parseTriageProfile(content);
+      }
+    }
+  } finally {
+    // 12. Always delete session
+    try { await api.runtime.subagent.deleteSession({ sessionKey: "betterclaw-learn" }); } catch { /* ignore */ }
+  }
+
+  // 13. Save if valid
   if (newProfile) {
     await saveTriageProfile(stateDir, newProfile);
   }
 
-  // 12. Delete session
-  await api.runtime.subagent.deleteSession({ sessionKey: "betterclaw-learn" });
-
-  // 13. Rotate old reactions
+  // 14. Rotate old reactions
   reactions.rotate();
   await reactions.save();
 }
