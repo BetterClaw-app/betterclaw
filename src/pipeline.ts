@@ -17,6 +17,13 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
 
   // Always update context
   context.updateFromEvent(event);
+  await context.save();
+
+  // If smartMode is OFF, store only — no filtering or pushing
+  if (!context.getRuntimeState().smartMode) {
+    await events.append({ event, decision: "stored", reason: "smartMode off", timestamp: Date.now() / 1000 });
+    return;
+  }
 
   // Run rules engine
   let decision = rules.evaluate(event, context.get());

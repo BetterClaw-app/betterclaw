@@ -191,6 +191,9 @@ export default {
       },
     });
 
+    // Sequential event queue — prevents budget races
+    let eventQueue: Promise<void> = Promise.resolve();
+
     // Event intake RPC
     api.registerGatewayMethod("betterclaw.event", async ({ params, respond }) => {
       try {
@@ -212,8 +215,15 @@ export default {
           return;
         }
 
+        // Persist event BEFORE responding (event safety guarantee)
+        await eventLog.append({ event, decision: "received", reason: "queued", timestamp: Date.now() / 1000 });
+
         respond(true, { accepted: true });
-        await processEvent(pipelineDeps, event);
+
+        // Sequential processing — prevents budget races
+        eventQueue = eventQueue.then(() => processEvent(pipelineDeps, event)).catch((err) => {
+          api.logger.error(`event processing failed: ${err}`);
+        });
       } catch (err) {
         api.logger.error(`betterclaw.event handler error: ${err instanceof Error ? err.message : String(err)}`);
       }
