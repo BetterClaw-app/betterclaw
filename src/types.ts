@@ -77,7 +77,7 @@ export type FilterDecision =
 
 export interface EventLogEntry {
   event: DeviceEvent;
-  decision: "push" | "drop" | "defer";
+  decision: "push" | "drop" | "defer" | "stored" | "received";
   reason: string;
   timestamp: number;
 }
@@ -122,8 +122,50 @@ export interface Patterns {
 // -- Plugin config --
 
 export interface PluginConfig {
-  llmModel: string;
+  triageModel: string;
+  triageApiBase?: string;
   pushBudgetPerDay: number;
   patternWindowDays: number;
   proactiveEnabled: boolean;
+  analysisHour: number;
+}
+
+// Triage profile produced by daily learning agent
+export interface TriageProfile {
+  eventPreferences: Record<string, "push" | "drop" | "context-dependent">;
+  lifeContext: string;
+  interruptionTolerance: "low" | "normal" | "high";
+  timePreferences: { quietHoursStart?: number; quietHoursEnd?: number; activeStart?: number; activeEnd?: number };
+  sensitivityThresholds: Record<string, number>;
+  locationRules: Record<string, "push" | "drop" | "context-dependent">;
+  summary: string;
+  computedAt: number;
+}
+
+// Reaction tracking for pushed events
+export interface ReactionEntry {
+  idempotencyKey: string;
+  subscriptionId: string;
+  source: string;
+  pushedAt: number;
+  engaged: boolean | null; // null = not yet determined
+  checkedAt?: number;
+}
+
+// Per-device config from betterclaw.config RPC
+export interface DeviceConfig {
+  pushBudgetPerDay?: number;
+  proactiveEnabled?: boolean;
+}
+
+// Runtime state (not persisted)
+export interface RuntimeState {
+  tier: "free" | "premium" | "premium+";
+  smartMode: boolean;
+}
+
+// Timestamps for context fields
+export interface TimestampedValue<T> {
+  value: T;
+  updatedAt: number;
 }
