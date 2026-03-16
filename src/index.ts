@@ -13,30 +13,23 @@ import type { PipelineDeps } from "./pipeline.js";
 export type { PluginConfig } from "./types.js";
 
 const DEFAULT_CONFIG: PluginConfig = {
-  llmModel: "openai/gpt-4o-mini",
+  triageModel: "openai/gpt-4o-mini",
+  triageApiBase: undefined,
   pushBudgetPerDay: 10,
   patternWindowDays: 14,
   proactiveEnabled: true,
+  analysisHour: 5,
 };
 
 function resolveConfig(raw: Record<string, unknown> | undefined): PluginConfig {
+  const cfg = raw ?? {};
   return {
-    llmModel:
-      typeof raw?.llmModel === "string" && raw.llmModel.trim()
-        ? raw.llmModel.trim()
-        : DEFAULT_CONFIG.llmModel,
-    pushBudgetPerDay:
-      typeof raw?.pushBudgetPerDay === "number" && raw.pushBudgetPerDay > 0
-        ? raw.pushBudgetPerDay
-        : DEFAULT_CONFIG.pushBudgetPerDay,
-    patternWindowDays:
-      typeof raw?.patternWindowDays === "number" && raw.patternWindowDays > 0
-        ? raw.patternWindowDays
-        : DEFAULT_CONFIG.patternWindowDays,
-    proactiveEnabled:
-      typeof raw?.proactiveEnabled === "boolean"
-        ? raw.proactiveEnabled
-        : DEFAULT_CONFIG.proactiveEnabled,
+    triageModel: (cfg.triageModel as string) ?? (cfg.llmModel as string) ?? "openai/gpt-4o-mini",
+    triageApiBase: (cfg.triageApiBase as string) ?? undefined,
+    pushBudgetPerDay: typeof cfg.pushBudgetPerDay === "number" ? cfg.pushBudgetPerDay : 10,
+    patternWindowDays: typeof cfg.patternWindowDays === "number" ? cfg.patternWindowDays : 14,
+    proactiveEnabled: typeof cfg.proactiveEnabled === "boolean" ? cfg.proactiveEnabled : true,
+    analysisHour: typeof cfg.analysisHour === "number" ? Math.max(0, Math.min(23, cfg.analysisHour)) : 5,
   };
 }
 
@@ -48,7 +41,7 @@ export default {
     const config = resolveConfig(api.pluginConfig as Record<string, unknown> | undefined);
     const stateDir = api.runtime.state.resolveStateDir();
 
-    api.logger.info(`betterclaw plugin loaded (model=${config.llmModel}, budget=${config.pushBudgetPerDay})`);
+    api.logger.info(`betterclaw plugin loaded (model=${config.triageModel}, budget=${config.pushBudgetPerDay})`);
 
     // Context manager (load synchronously — file read deferred to first access)
     const ctxManager = new ContextManager(stateDir);

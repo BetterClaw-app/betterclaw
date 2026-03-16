@@ -1,34 +1,55 @@
 {
   "id": "betterclaw",
-  "name": "BetterClaw Context",
-  "description": "Intelligent context layer for BetterClaw iOS companion app",
-  "version": "1.0.3",
+  "name": "BetterClaw",
+  "description": "Intelligent device context, event filtering, and proactive insights for BetterClaw iOS",
+  "version": "2.0.0",
+  "main": "dist/index.js",
   "skills": ["./skills/betterclaw"],
   "configSchema": {
     "type": "object",
-    "additionalProperties": false,
     "properties": {
+      "triageModel": {
+        "type": "string",
+        "default": "openai/gpt-4o-mini",
+        "description": "Model for per-event triage (accepts llmModel as deprecated alias)"
+      },
       "llmModel": {
         "type": "string",
-        "default": "openai/gpt-4o-mini"
+        "description": "Deprecated — use triageModel instead"
+      },
+      "triageApiBase": {
+        "type": "string",
+        "description": "Optional base URL for OpenAI-compatible triage endpoint (e.g. http://localhost:11434/v1 for Ollama)"
       },
       "pushBudgetPerDay": {
         "type": "number",
-        "default": 10
+        "default": 10,
+        "description": "Max events forwarded to agent per day"
       },
       "patternWindowDays": {
         "type": "number",
-        "default": 14
+        "default": 14,
+        "description": "Days of event history for pattern computation"
       },
       "proactiveEnabled": {
         "type": "boolean",
-        "default": true
+        "default": true,
+        "description": "Enable proactive combined-signal insights"
+      },
+      "analysisHour": {
+        "type": "number",
+        "default": 5,
+        "minimum": 0,
+        "maximum": 23,
+        "description": "Hour (system timezone) for daily analysis run"
       }
-    }
+    },
+    "additionalProperties": false
   },
   "uiHints": {
-    "llmModel": { "label": "Triage LLM Model", "placeholder": "openai/gpt-4o-mini" },
-    "pushBudgetPerDay": { "label": "Max pushes per day" },
-    "proactiveEnabled": { "label": "Enable proactive insights" }
+    "triageModel": { "label": "Triage Model", "placeholder": "openai/gpt-4o-mini" },
+    "pushBudgetPerDay": { "label": "Push Budget / Day", "type": "number" },
+    "proactiveEnabled": { "label": "Proactive Insights", "type": "boolean" },
+    "analysisHour": { "label": "Analysis Hour (0-23)", "type": "number" }
   }
 }
