@@ -94,7 +94,7 @@ export function parseTriageProfile(text: string): TriageProfile | null {
       sensitivityThresholds: parsed.sensitivityThresholds ?? {},
       locationRules: parsed.locationRules ?? {},
       summary: parsed.summary,
-      computedAt: Date.now() / 1000,
+      computedAt: parsed.computedAt ?? Date.now() / 1000,
     };
   } catch {
     return null;

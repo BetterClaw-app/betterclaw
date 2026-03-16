@@ -107,12 +107,13 @@ export default {
       ctxManager.setRuntimeState({ tier, smartMode });
 
       const meta = ctxManager.get().meta;
+      const effectiveBudget = ctxManager.getDeviceConfig().pushBudgetPerDay ?? config.pushBudgetPerDay;
       respond(true, {
         ok: true,
         version: pluginVersion,
         initialized,
         pushesToday: meta.pushesToday,
-        budgetRemaining: Math.max(0, config.pushBudgetPerDay - meta.pushesToday),
+        budgetRemaining: Math.max(0, effectiveBudget - meta.pushesToday),
       });
     });
 
