@@ -54,25 +54,32 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
     );
 
     if (triageResult.push) {
-      deps.reactions.recordPush({
-        idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
-        subscriptionId: event.subscriptionId,
-        source: event.source,
-        pushedAt: Date.now() / 1000,
+      const pushed = await pushToAgent(deps, event, `triage: ${triageResult.reason}`);
+
+      if (pushed) {
+        rules.recordFired(event.subscriptionId, event.firedAt);
+        context.recordPush();
+        deps.reactions.recordPush({
+          idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
+          subscriptionId: event.subscriptionId,
+          source: event.source,
+          pushedAt: Date.now() / 1000,
+        });
+      }
+
+      await events.append({
+        event,
+        decision: pushed ? "push" : "drop",
+        reason: pushed ? `triage: ${triageResult.reason}` : `triage push failed: ${triageResult.reason}`,
+        timestamp: Date.now() / 1000,
       });
-      await pushToAgent(deps, event, `triage: ${triageResult.reason}`);
-    }
-
-    await events.append({
-      event,
-      decision: triageResult.push ? "push" : "drop",
-      reason: `triage: ${triageResult.reason}`,
-      timestamp: Date.now() / 1000,
-    });
-
-    if (triageResult.push) {
-      rules.recordFired(event.subscriptionId, event.firedAt);
-      context.recordPush();
+    } else {
+      await events.append({
+        event,
+        decision: "drop",
+        reason: `triage: ${triageResult.reason}`,
+        timestamp: Date.now() / 1000,
+      });
     }
 
     await context.save();
@@ -80,30 +87,34 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
     return;
   }
 
-  // Log the event + decision
-  await events.append({
-    event,
-    decision: decision.action === "push" ? "push" : "drop",
-    reason: decision.reason,
-    timestamp: Date.now() / 1000,
-  });
-
-  // If push, inject into agent session
   if (decision.action === "push") {
-    rules.recordFired(event.subscriptionId, event.firedAt);
-    context.recordPush();
+    const pushed = await pushToAgent(deps, event, decision.reason);
 
-    // Record reaction for all pushes
-    deps.reactions.recordPush({
-      idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
-      subscriptionId: event.subscriptionId,
-      source: event.source,
-      pushedAt: Date.now() / 1000,
+    if (pushed) {
+      rules.recordFired(event.subscriptionId, event.firedAt);
+      context.recordPush();
+      deps.reactions.recordPush({
+        idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
+        subscriptionId: event.subscriptionId,
+        source: event.source,
+        pushedAt: Date.now() / 1000,
+      });
+    }
+
+    await events.append({
+      event,
+      decision: pushed ? "push" : "drop",
+      reason: pushed ? decision.reason : `push failed: ${decision.reason}`,
+      timestamp: Date.now() / 1000,
     });
-
-    await pushToAgent(deps, event, decision.reason);
   } else {
-    api.logger.info(`betterclaw: ${decision.action} event ${event.subscriptionId}: ${decision.reason}`);
+    await events.append({
+      event,
+      decision: "drop",
+      reason: decision.reason,
+      timestamp: Date.now() / 1000,
+    });
+    api.logger.info(`betterclaw: drop event ${event.subscriptionId}: ${decision.reason}`);
   }
 
   // Persist context and reactions
@@ -111,7 +122,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   await deps.reactions.save();
 }
 
-async function pushToAgent(deps: PipelineDeps, event: DeviceEvent, reason: string): Promise<void> {
+async function pushToAgent(deps: PipelineDeps, event: DeviceEvent, reason: string): Promise<boolean> {
   const message = formatEnrichedMessage(event, deps.context);
   const idempotencyKey = `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`;
 
@@ -123,10 +134,12 @@ async function pushToAgent(deps: PipelineDeps, event: DeviceEvent, reason: strin
       idempotencyKey,
     });
     deps.api.logger.info(`betterclaw: pushed event ${event.subscriptionId} to agent`);
+    return true;
   } catch (err) {
     deps.api.logger.error(
       `betterclaw: failed to push to agent: ${err instanceof Error ? err.message : String(err)}`,
     );
+    return false;
   }
 }
 

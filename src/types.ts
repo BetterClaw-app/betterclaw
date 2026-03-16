@@ -76,7 +76,7 @@ export type FilterDecision =
 
 export interface EventLogEntry {
   event: DeviceEvent;
-  decision: "push" | "drop" | "stored" | "received";
+  decision: "push" | "drop" | "stored";
   reason: string;
   timestamp: number;
 }

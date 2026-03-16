@@ -280,9 +280,6 @@ export default {
           return;
         }
 
-        // Persist event BEFORE responding (event safety guarantee)
-        await eventLog.append({ event, decision: "received", reason: "queued", timestamp: Date.now() / 1000 });
-
         respond(true, { accepted: true });
 
         // Sequential processing — prevents budget races
