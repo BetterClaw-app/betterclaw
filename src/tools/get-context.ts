@@ -1,7 +1,8 @@
 import { Type } from "@sinclair/typebox";
 import type { ContextManager } from "../context.js";
+import type { TriageProfile } from "../types.js";
 
-export function createGetContextTool(ctx: ContextManager) {
+export function createGetContextTool(ctx: ContextManager, profile?: TriageProfile | null) {
   return {
     name: "get_context",
     label: "Get Device Context",
@@ -21,13 +22,34 @@ export function createGetContextTool(ctx: ContextManager) {
           : ["device", "activity", "patterns", "meta"];
 
       const state = ctx.get();
+      const runtime = ctx.getRuntimeState();
       const patterns = await ctx.readPatterns();
 
-      const result: Record<string, unknown> = {};
-      if (sections.includes("device")) result.device = state.device;
-      if (sections.includes("activity")) result.activity = state.activity;
+      const result: Record<string, unknown> = {
+        tier: runtime.tier,
+        smartMode: runtime.smartMode,
+      };
+
+      if (sections.includes("device")) {
+        result.device = {
+          battery: state.device.battery ? { ...state.device.battery, updatedAt: ctx.getTimestamp("battery") } : null,
+          location: state.device.location ? { ...state.device.location, updatedAt: ctx.getTimestamp("location") } : null,
+          health: state.device.health ? { ...state.device.health, updatedAt: ctx.getTimestamp("health") } : null,
+        };
+      }
+      if (sections.includes("activity")) {
+        result.activity = { ...state.activity, updatedAt: ctx.getTimestamp("activity") };
+      }
       if (sections.includes("patterns") && patterns) result.patterns = patterns;
-      if (sections.includes("meta")) result.meta = state.meta;
+      if (sections.includes("meta")) {
+        result.meta = {
+          ...state.meta,
+          lastSnapshotAt: ctx.getTimestamp("lastSnapshot"),
+          lastAnalysisAt: patterns?.computedAt,
+        };
+      }
+
+      result.triageProfile = profile ? { summary: profile.summary, computedAt: profile.computedAt } : null;
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],

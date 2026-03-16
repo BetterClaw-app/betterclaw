@@ -9,6 +9,7 @@ import { ProactiveEngine } from "./triggers.js";
 import { processEvent } from "./pipeline.js";
 import type { PipelineDeps } from "./pipeline.js";
 import { BETTERCLAW_COMMANDS, mergeAllowCommands } from "./cli.js";
+import { loadTriageProfile } from "./learner.js";
 
 export type { PluginConfig } from "./types.js";
 
@@ -122,8 +123,17 @@ export default {
       if (!initialized) await initPromise;
 
       const state = ctxManager.get();
+      const runtime = ctxManager.getRuntimeState();
+      const timestamps = {
+        battery: ctxManager.getTimestamp("battery"),
+        location: ctxManager.getTimestamp("location"),
+        health: ctxManager.getTimestamp("health"),
+        activity: ctxManager.getTimestamp("activity"),
+        lastSnapshot: ctxManager.getTimestamp("lastSnapshot"),
+      };
       const patterns = await ctxManager.readPatterns();
       const recentEntries = await eventLog.readRecent(20);
+      const profile = await loadTriageProfile(stateDir);
 
       const activity = {
         currentZone: state.activity.currentZone,
@@ -159,6 +169,8 @@ export default {
         pushesToday: state.meta.pushesToday,
         pushBudgetPerDay: config.pushBudgetPerDay,
         eventsToday: state.meta.eventsToday,
+        lastSnapshotAt: timestamps.lastSnapshot,
+        lastAnalysisAt: patterns?.computedAt,
       };
 
       const routines = patterns
@@ -168,7 +180,17 @@ export default {
           }
         : null;
 
-      respond(true, { activity, trends, decisions, meta, routines });
+      respond(true, {
+        tier: runtime.tier,
+        smartMode: runtime.smartMode,
+        activity,
+        trends,
+        decisions,
+        meta,
+        routines,
+        timestamps,
+        triageProfile: profile ? { summary: profile.summary, computedAt: profile.computedAt } : null,
+      });
     });
 
     // Snapshot RPC — bulk-apply device state for Smart Mode catch-up

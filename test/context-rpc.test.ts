@@ -4,7 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { EventLog } from "../src/events.js";
 import { ContextManager } from "../src/context.js";
-import type { EventLogEntry } from "../src/types.js";
+import { createGetContextTool } from "../src/tools/get-context.js";
+import type { EventLogEntry, TriageProfile } from "../src/types.js";
 
 function makeEntry(i: number, decision: "push" | "drop" | "defer" = "push"): EventLogEntry {
   return {
@@ -201,5 +202,61 @@ describe("ContextManager.applySnapshot", () => {
     expect(state.device.health!.activeEnergyKcal).toBe(320);
     expect(state.device.health!.sleepDurationSeconds).toBe(27000);
     expect(state.device.health!.updatedAt).toBeGreaterThan(0);
+  });
+});
+
+describe("get_context tool", () => {
+  let tmpDir: string;
+  let ctx: ContextManager;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-tool-"));
+    ctx = new ContextManager(tmpDir);
+  });
+
+  it("includes tier and smartMode", async () => {
+    ctx.setRuntimeState({ tier: "premium", smartMode: true });
+    const tool = createGetContextTool(ctx);
+    const result = await tool.execute("test", {});
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.tier).toBe("premium");
+    expect(parsed.smartMode).toBe(true);
+  });
+
+  it("includes timestamps in device sections", async () => {
+    ctx.updateFromEvent({
+      subscriptionId: "bat",
+      source: "device.battery",
+      data: { level: 0.5 },
+      firedAt: 1740000100,
+    });
+    const tool = createGetContextTool(ctx);
+    const result = await tool.execute("test", {});
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.device.battery.updatedAt).toBe(1740000100);
+  });
+
+  it("includes triage profile summary when provided", async () => {
+    const profile: TriageProfile = {
+      eventPreferences: {},
+      lifeContext: "test",
+      interruptionTolerance: "normal",
+      timePreferences: {},
+      sensitivityThresholds: {},
+      locationRules: {},
+      summary: "Test profile",
+      computedAt: 1740000000,
+    };
+    const tool = createGetContextTool(ctx, profile);
+    const result = await tool.execute("test", {});
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.triageProfile.summary).toBe("Test profile");
+  });
+
+  it("returns null triage profile when not provided", async () => {
+    const tool = createGetContextTool(ctx);
+    const result = await tool.execute("test", {});
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.triageProfile).toBeNull();
   });
 });
