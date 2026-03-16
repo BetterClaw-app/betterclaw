@@ -4,3 +4,4 @@ dist/
 !vitest.config.*
 docs/plans/
 .DS_Store
+.worktrees/
