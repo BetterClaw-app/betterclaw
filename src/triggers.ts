@@ -192,6 +192,10 @@ export class ProactiveEngine {
     if (!this.context.getRuntimeState().smartMode) {
       return;
     }
+    const deviceConfig = this.context.getDeviceConfig();
+    if (deviceConfig.proactiveEnabled === false) {
+      return;
+    }
     const ctx = this.context.get();
     const patterns = (await this.context.readPatterns()) ?? (await import("./patterns.js")).emptyPatterns();
 

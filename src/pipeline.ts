@@ -31,7 +31,9 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   }
 
   // Run rules engine
-  const decision = rules.evaluate(event, context.get());
+  const deviceConfig = context.getDeviceConfig();
+  const effectiveBudget = deviceConfig.pushBudgetPerDay ?? config.pushBudgetPerDay;
+  const decision = rules.evaluate(event, context.get(), effectiveBudget);
 
   // Ambiguous events go through LLM triage
   if (decision.action === "ambiguous") {

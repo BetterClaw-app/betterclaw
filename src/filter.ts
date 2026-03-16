@@ -18,7 +18,7 @@ export class RulesEngine {
     this.pushBudget = pushBudget;
   }
 
-  evaluate(event: DeviceEvent, context: DeviceContext): FilterDecision {
+  evaluate(event: DeviceEvent, context: DeviceContext, budgetOverride?: number): FilterDecision {
     // Debug events always pass
     if (event.data._debugFired === 1.0) {
       return { action: "push", reason: "debug event — always push" };
@@ -69,8 +69,9 @@ export class RulesEngine {
     }
 
     // Push budget check
-    if (context.meta.pushesToday >= this.pushBudget) {
-      return { action: "drop", reason: `push budget exhausted (${context.meta.pushesToday}/${this.pushBudget} today)` };
+    const budget = budgetOverride ?? this.pushBudget;
+    if (context.meta.pushesToday >= budget) {
+      return { action: "drop", reason: `push budget exhausted (${context.meta.pushesToday}/${budget} today)` };
     }
 
     // Anything else is ambiguous — forward to LLM judgment
