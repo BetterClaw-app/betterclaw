@@ -138,3 +138,10 @@ export function _resetJwtState(): void {
   currentJwtToken = null;
   currentPayload = null;
 }
+
+/**
+ * Inject a payload directly (for testing requireEntitlement without real keys).
+ */
+export function _setPayloadForTesting(payload: JwtPayload | null): void {
+  currentPayload = payload;
+}

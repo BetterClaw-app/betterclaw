@@ -21,15 +21,16 @@ export interface PipelineDeps {
 export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Promise<void> {
   const { api, config, context, events, rules } = deps;
 
-  const entitlementError = requireEntitlement("premium");
-  if (entitlementError) {
-    console.log(`[betterclaw] event blocked: ${entitlementError}`);
-    return;
-  }
-
-  // Always update context
+  // Always update context (even for non-premium users)
   context.updateFromEvent(event);
   await context.save();
+
+  // Gate event forwarding behind premium entitlement
+  const entitlementError = requireEntitlement("premium");
+  if (entitlementError) {
+    api.logger.info(`betterclaw: event blocked (no premium entitlement)`);
+    return;
+  }
 
   // If smartMode is OFF, store only — no filtering or pushing
   if (!context.getRuntimeState().smartMode) {
