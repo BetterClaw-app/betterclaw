@@ -127,6 +127,8 @@ export interface PluginConfig {
   patternWindowDays: number;
   proactiveEnabled: boolean;
   analysisHour: number;
+  deduplicationCooldowns: Record<string, number>;
+  defaultCooldown: number;
 }
 
 // Triage profile produced by daily learning agent

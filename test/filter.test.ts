@@ -8,7 +8,12 @@ describe("RulesEngine", () => {
   let emptyContext: ReturnType<typeof ContextManager.empty>;
 
   beforeEach(() => {
-    rules = new RulesEngine();
+    rules = new RulesEngine(10, {
+      "default.battery-low": 3600,
+      "default.battery-critical": 1800,
+      "default.daily-health": 82800,
+      "default.geofence": 300,
+    });
     emptyContext = ContextManager.empty();
   });
 
