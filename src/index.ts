@@ -125,9 +125,9 @@ export default {
       if (jwt) {
         const payload = await storeJwt(jwt);
         if (payload) {
-          console.log(`[betterclaw] JWT verified: entitlements=${payload.ent.join(",")}`);
+          api.logger.info(`betterclaw: JWT verified, entitlements=${payload.ent.join(",")}`);
         } else {
-          console.warn("[betterclaw] JWT verification failed");
+          api.logger.warn("betterclaw: JWT verification failed");
         }
       }
 
