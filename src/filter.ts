@@ -1,21 +1,15 @@
 import type { DeviceContext, DeviceEvent, FilterDecision } from "./types.js";
 
-// Cooldowns in seconds
-const DEDUP_COOLDOWN: Record<string, number> = {
-  "default.battery-low": 3600,
-  "default.battery-critical": 1800,
-  "default.daily-health": 82800, // 23 hours
-  "default.geofence": 300,
-};
-
-const DEFAULT_COOLDOWN = 1800; // 30 minutes
-
 export class RulesEngine {
   private lastFired: Map<string, number> = new Map();
   private pushBudget: number;
+  private cooldowns: Record<string, number>;
+  private defaultCooldown: number;
 
-  constructor(pushBudget: number = 10) {
+  constructor(pushBudget: number = 10, cooldowns: Record<string, number> = {}, defaultCooldown: number = 1800) {
     this.pushBudget = pushBudget;
+    this.cooldowns = cooldowns;
+    this.defaultCooldown = defaultCooldown;
   }
 
   evaluate(event: DeviceEvent, context: DeviceContext, budgetOverride?: number): FilterDecision {
@@ -26,7 +20,7 @@ export class RulesEngine {
 
     // Dedup check
     const lastFiredAt = this.lastFired.get(event.subscriptionId);
-    const cooldown = DEDUP_COOLDOWN[event.subscriptionId] ?? DEFAULT_COOLDOWN;
+    const cooldown = this.cooldowns[event.subscriptionId] ?? this.defaultCooldown;
     if (lastFiredAt && event.firedAt - lastFiredAt < cooldown) {
       return {
         action: "drop",

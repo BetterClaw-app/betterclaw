@@ -16,6 +16,13 @@ import * as path from "node:path";
 
 export type { PluginConfig } from "./types.js";
 
+const DEFAULT_COOLDOWNS: Record<string, number> = {
+  "default.battery-low": 3600,
+  "default.battery-critical": 1800,
+  "default.daily-health": 82800,
+  "default.geofence": 300,
+};
+
 const DEFAULT_CONFIG: PluginConfig = {
   triageModel: "openai/gpt-4o-mini",
   triageApiBase: undefined,
@@ -23,6 +30,8 @@ const DEFAULT_CONFIG: PluginConfig = {
   patternWindowDays: 14,
   proactiveEnabled: true,
   analysisHour: 5,
+  deduplicationCooldowns: DEFAULT_COOLDOWNS,
+  defaultCooldown: 1800,
 };
 
 function resolveConfig(raw: Record<string, unknown> | undefined): PluginConfig {
@@ -34,6 +43,13 @@ function resolveConfig(raw: Record<string, unknown> | undefined): PluginConfig {
     patternWindowDays: typeof cfg.patternWindowDays === "number" && cfg.patternWindowDays > 0 ? cfg.patternWindowDays : 14,
     proactiveEnabled: typeof cfg.proactiveEnabled === "boolean" ? cfg.proactiveEnabled : true,
     analysisHour: typeof cfg.analysisHour === "number" ? Math.max(0, Math.min(23, cfg.analysisHour)) : 5,
+    deduplicationCooldowns: {
+      ...DEFAULT_COOLDOWNS,
+      ...(typeof cfg.deduplicationCooldowns === "object" && cfg.deduplicationCooldowns !== null
+        ? cfg.deduplicationCooldowns as Record<string, number>
+        : {}),
+    },
+    defaultCooldown: typeof cfg.defaultCooldown === "number" && cfg.defaultCooldown > 0 ? cfg.defaultCooldown : 1800,
   };
 }
 
@@ -52,7 +68,7 @@ export default {
 
     // Event log, rules engine, reaction tracker
     const eventLog = new EventLog(stateDir);
-    const rules = new RulesEngine(config.pushBudgetPerDay);
+    const rules = new RulesEngine(config.pushBudgetPerDay, config.deduplicationCooldowns, config.defaultCooldown);
     const reactionTracker = new ReactionTracker(stateDir);
 
     // Pipeline dependencies
