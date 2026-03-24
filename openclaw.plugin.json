@@ -42,6 +42,16 @@
         "minimum": 0,
         "maximum": 23,
         "description": "Hour (system timezone) for daily analysis run"
+      },
+      "deduplicationCooldowns": {
+        "type": "object",
+        "additionalProperties": { "type": "number" },
+        "description": "Per-subscription dedup cooldowns in seconds (e.g. {\"default.geofence\": 300})"
+      },
+      "defaultCooldown": {
+        "type": "number",
+        "default": 1800,
+        "description": "Default dedup cooldown in seconds for subscriptions not in deduplicationCooldowns"
       }
     },
     "additionalProperties": false
