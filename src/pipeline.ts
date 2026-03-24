@@ -134,7 +134,7 @@ async function pushToAgent(deps: PipelineDeps, event: DeviceEvent, reason: strin
     await deps.api.runtime.subagent.run({
       sessionKey: "main",
       message,
-      deliver: true,
+      deliver: false,
       idempotencyKey,
     });
     deps.api.logger.info(`betterclaw: pushed event ${event.subscriptionId} to agent`);
