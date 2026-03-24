@@ -6,6 +6,7 @@ import type { ReactionTracker } from "./reactions.js";
 import type { DeviceEvent, DeviceContext, PluginConfig } from "./types.js";
 import { triageEvent } from "./triage.js";
 import { loadTriageProfile } from "./learner.js";
+import { requireEntitlement } from "./jwt.js";
 
 export interface PipelineDeps {
   api: OpenClawPluginApi;
@@ -19,6 +20,12 @@ export interface PipelineDeps {
 
 export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Promise<void> {
   const { api, config, context, events, rules } = deps;
+
+  const entitlementError = requireEntitlement("premium");
+  if (entitlementError) {
+    console.log(`[betterclaw] event blocked: ${entitlementError}`);
+    return;
+  }
 
   // Always update context
   context.updateFromEvent(event);

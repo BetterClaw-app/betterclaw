@@ -9,6 +9,7 @@ import { ProactiveEngine } from "./triggers.js";
 import { processEvent } from "./pipeline.js";
 import type { PipelineDeps } from "./pipeline.js";
 import { BETTERCLAW_COMMANDS, mergeAllowCommands } from "./cli.js";
+import { storeJwt } from "./jwt.js";
 import { loadTriageProfile, runLearner } from "./learner.js";
 import { ReactionTracker } from "./reactions.js";
 import * as os from "node:os";
@@ -114,11 +115,21 @@ export default {
     })();
 
     // Ping health check
-    api.registerGatewayMethod("betterclaw.ping", ({ params, respond }) => {
+    api.registerGatewayMethod("betterclaw.ping", async ({ params, respond }) => {
       const validTiers: Array<"free" | "premium" | "premium+"> = ["free", "premium", "premium+"];
       const rawTier = (params as Record<string, unknown>)?.tier as string;
       const tier = validTiers.includes(rawTier as any) ? (rawTier as "free" | "premium" | "premium+") : "free";
       const smartMode = (params as Record<string, unknown>)?.smartMode === true;
+
+      const jwt = (params as Record<string, unknown>)?.jwt as string | undefined;
+      if (jwt) {
+        const payload = await storeJwt(jwt);
+        if (payload) {
+          console.log(`[betterclaw] JWT verified: entitlements=${payload.ent.join(",")}`);
+        } else {
+          console.warn("[betterclaw] JWT verification failed");
+        }
+      }
 
       ctxManager.setRuntimeState({ tier, smartMode });
 
