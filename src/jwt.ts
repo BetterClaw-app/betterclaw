@@ -84,3 +84,57 @@ export function hasEntitlement(
 ): boolean {
   return payload !== null && payload.ent.includes(entitlement);
 }
+
+// ES256 public key for JWT verification (from betterclaw-api)
+const JWT_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEi2MFBpmWsTPIvJI4dTkrJVmeUE9L
+j9wMeV+kpLoMxVt09srOoI3r2CGUSwktRI0WyHQPkQjV1GC08SZ2Y8mwPw==
+-----END PUBLIC KEY-----`;
+
+// Module-level JWT state — safe because this is per-plugin-instance,
+// not per-request. Updated only from the heartbeat handler.
+let currentJwtToken: string | null = null;
+let currentPayload: JwtPayload | null = null;
+
+/**
+ * Store and verify a JWT received from heartbeat.
+ * Only re-verifies if the token has changed.
+ */
+export async function storeJwt(jwt: string): Promise<JwtPayload | null> {
+  if (jwt === currentJwtToken) return currentPayload;
+  currentJwtToken = jwt;
+  currentPayload = await verifyJwt(jwt, JWT_PUBLIC_KEY);
+  return currentPayload;
+}
+
+/**
+ * Get the current verified payload (may be null).
+ */
+export function getVerifiedPayload(): JwtPayload | null {
+  return currentPayload;
+}
+
+/**
+ * Check if the current JWT grants an entitlement.
+ * Returns null if entitled, or an error message string if not.
+ */
+export function requireEntitlement(entitlement: string): string | null {
+  if (!currentPayload) {
+    return "This feature requires an active Premium subscription. Please open BetterClaw and check your subscription status.";
+  }
+  if (!hasEntitlement(currentPayload, entitlement)) {
+    if (entitlement === "shortcuts") {
+      return "This feature requires the Shortcuts Pack add-on. Please open BetterClaw and check your subscription status.";
+    }
+    return "This feature requires an active Premium subscription. Please open BetterClaw and check your subscription status.";
+  }
+  return null;
+}
+
+/**
+ * Reset JWT state (for testing).
+ */
+export function _resetJwtState(): void {
+  currentJwtToken = null;
+  currentPayload = null;
+}
