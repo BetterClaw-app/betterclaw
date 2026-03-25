@@ -87,8 +87,8 @@ export function hasEntitlement(
 
 // ES256 public key for JWT verification (from betterclaw-api)
 const JWT_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
-MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEi2MFBpmWsTPIvJI4dTkrJVmeUE9L
-j9wMeV+kpLoMxVt09srOoI3r2CGUSwktRI0WyHQPkQjV1GC08SZ2Y8mwPw==
+MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAENEZHoGBTF5wHq6p7GTDRl5b24aSS
+Jw9NZAbe/inE4VynwiMvl3IxS+CdJYSm4CKbeCGXxy/5jCBk6Mzod+0ICg==
 -----END PUBLIC KEY-----`;
 
 // Module-level JWT state — safe because this is per-plugin-instance,
