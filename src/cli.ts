@@ -13,6 +13,7 @@ export const BETTERCLAW_COMMANDS = [
   "health.summary",
   "health.workouts",
   "location.get",
+  "shortcuts.install",
   "shortcuts.run",
   "subscribe.add",
   "subscribe.list",
