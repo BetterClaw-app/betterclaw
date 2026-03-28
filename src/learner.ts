@@ -172,7 +172,7 @@ export async function runLearner(deps: RunLearnerDeps): Promise<void> {
     await api.runtime.subagent.waitForRun({ runId, timeoutMs: 60000 });
 
     // 10. Read response
-    const messages = await api.runtime.subagent.getSessionMessages({
+    const { messages } = await api.runtime.subagent.getSessionMessages({
       sessionKey: "betterclaw-learn",
       limit: 5,
     });
