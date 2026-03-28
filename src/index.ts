@@ -87,6 +87,7 @@ export default {
 
     // Track whether async init has completed
     let initialized = false;
+    let learnerRunning = false;
     const initPromise = (async () => {
       try {
         await ctxManager.load();
@@ -231,6 +232,16 @@ export default {
             }
           : null;
 
+        const triggerIds = ["low-battery-away", "unusual-inactivity", "sleep-deficit", "routine-deviation", "health-weekly-digest"];
+        const cooldowns: Record<string, number> = {};
+        if (patterns?.triggerCooldowns) {
+          for (const id of triggerIds) {
+            const ts = patterns.triggerCooldowns[id];
+            if (ts != null) cooldowns[id] = ts;
+          }
+        }
+        const triggers = patterns ? { cooldowns } : null;
+
         respond(true, {
           tier: runtime.tier,
           smartMode: runtime.smartMode,
@@ -240,11 +251,59 @@ export default {
           meta,
           routines,
           timestamps,
-          triageProfile: profile ? { summary: profile.summary, computedAt: profile.computedAt } : null,
+          triageProfile: profile ?? null,
+          triggers,
         });
       } catch (err) {
         api.logger.error(`betterclaw.context error: ${err instanceof Error ? err.message : String(err)}`);
         respond(false, undefined, { code: "INTERNAL_ERROR", message: "context fetch failed" });
+      }
+    });
+
+    // Learn RPC — trigger on-demand triage profile learning
+    api.registerGatewayMethod("betterclaw.learn", async ({ respond }) => {
+      try {
+        if (!initialized) await initPromise;
+
+        if (learnerRunning) {
+          respond(true, { ok: false, error: "already-running" });
+          return;
+        }
+
+        // Soft cooldown: 1 hour since last profile
+        const profile = await loadTriageProfile(stateDir);
+        if (profile?.computedAt) {
+          const elapsed = Date.now() / 1000 - profile.computedAt;
+          if (elapsed < 3600) {
+            const nextAvailableAt = profile.computedAt + 3600;
+            respond(true, { ok: false, error: "cooldown", nextAvailableAt });
+            return;
+          }
+        }
+
+        learnerRunning = true;
+        try {
+          await runLearner({
+            stateDir,
+            workspaceDir: path.join(os.homedir(), ".openclaw", "workspace"),
+            context: ctxManager,
+            events: eventLog,
+            reactions: reactionTracker,
+            api,
+          });
+          const updatedProfile = await loadTriageProfile(stateDir);
+          respond(true, {
+            ok: true,
+            summary: updatedProfile?.summary ?? null,
+            computedAt: updatedProfile?.computedAt ?? null,
+          });
+        } finally {
+          learnerRunning = false;
+        }
+      } catch (err) {
+        learnerRunning = false;
+        api.logger.error(`betterclaw.learn error: ${err instanceof Error ? err.message : String(err)}`);
+        respond(true, { ok: false, error: err instanceof Error ? err.message : String(err) });
       }
     });
 
