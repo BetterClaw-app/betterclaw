@@ -74,7 +74,7 @@ export async function triageEvent(
   const prompt = buildTriagePrompt(event, context, profile);
 
   try {
-    const apiKey = process.env.BETTERCLAW_TRIAGE_API_KEY ?? (await resolveApiKey());
+    const apiKey = await resolveApiKey();
     if (!apiKey) {
       return { push: true, reason: "no API key for triage — defaulting to push" };
     }
