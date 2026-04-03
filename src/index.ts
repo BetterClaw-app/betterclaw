@@ -116,7 +116,7 @@ export default {
     })();
 
     // Ping health check
-    api.registerGatewayMethod("betterclaw.ping", async ({ params, respond }) => {
+    api.registerGatewayMethod("betterclaw.ping", async ({ params, respond, context }) => {
       const validTiers: Array<"free" | "premium" | "premium+"> = ["free", "premium", "premium+"];
       const rawTier = (params as Record<string, unknown>)?.tier as string;
       const tier = validTiers.includes(rawTier as any) ? (rawTier as "free" | "premium" | "premium+") : "free";
@@ -142,6 +142,7 @@ export default {
         initialized,
         pushesToday: meta.pushesToday,
         budgetRemaining: Math.max(0, effectiveBudget - meta.pushesToday),
+        nodeConnected: context.hasConnectedMobileNode(),
       });
     });
 
