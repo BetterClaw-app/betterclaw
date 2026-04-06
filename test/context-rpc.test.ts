@@ -219,7 +219,7 @@ describe("get_context tool", () => {
     const tool = createGetContextTool(ctx);
     const result = await tool.execute("test", {});
     const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.tier).toBe("premium");
+    expect(parsed.tierHint.tier).toBe("premium");
     expect(parsed.smartMode).toBe(true);
   });
 

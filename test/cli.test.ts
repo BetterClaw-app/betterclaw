@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { BETTERCLAW_COMMANDS, mergeAllowCommands } from "../src/cli.js";
 
 describe("CLI setup", () => {
-  it("has 22 commands", () => {
-    expect(BETTERCLAW_COMMANDS).toHaveLength(22);
+  it("has 23 commands", () => {
+    expect(BETTERCLAW_COMMANDS).toHaveLength(23);
   });
 
   it("merges without duplicates", () => {
@@ -26,6 +26,6 @@ describe("CLI setup", () => {
     const existing = ["system.notify", "device.battery"];
     const merged = mergeAllowCommands(existing, BETTERCLAW_COMMANDS);
     const added = merged.length - existing.length;
-    expect(added).toBe(20); // 22 total - 2 already exist
+    expect(added).toBe(21); // 23 total - 2 already exist
   });
 });
