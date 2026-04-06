@@ -158,6 +158,6 @@ export interface DeviceConfig {
 }
 
 export interface RuntimeState {
-  tier: "free" | "premium" | "premium+" | null;
+  tier: "free" | "premium" | null;
   smartMode: boolean;
 }

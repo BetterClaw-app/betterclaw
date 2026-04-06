@@ -32,7 +32,7 @@ export function createCheckTierTool(ctx: ContextManager, getState: () => CheckTi
       }
       const cacheUntil = Math.floor(Date.now() / 1000) + 86400;
 
-      const isPremium = runtime.tier === "premium" || runtime.tier === "premium+";
+      const isPremium = runtime.tier === "premium";
 
       const dataPath = isPremium
         ? "Use node commands for current device readings: location.get, device.battery, health.steps, health.heartrate, health.hrv, health.sleep, health.distance, health.restinghr, health.workouts, health.summary, geofence.list. Use get_context for patterns, trends, history, and broad situational awareness — its device snapshot may not be perfectly recent but is useful for the big picture."
