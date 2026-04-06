@@ -66,6 +66,16 @@ export class ContextManager {
     return this.timestamps[field];
   }
 
+  /** Returns age of each device data section in seconds, or null if no data */
+  getDataAge(): { battery: number | null; location: number | null; health: number | null } {
+    const now = Date.now() / 1000;
+    return {
+      battery: this.timestamps.battery != null ? Math.round(now - this.timestamps.battery) : null,
+      location: this.timestamps.location != null ? Math.round(now - this.timestamps.location) : null,
+      health: this.timestamps.health != null ? Math.round(now - this.timestamps.health) : null,
+    };
+  }
+
   async save(): Promise<void> {
     await fs.mkdir(path.dirname(this.contextPath), { recursive: true });
     const data = { ...this.context, _timestamps: this.timestamps };
@@ -81,8 +91,8 @@ export class ContextManager {
     // Reset daily counters at local midnight
     const lastDate = new Date(this.context.meta.lastEventAt * 1000);
     const currentDate = new Date(now * 1000);
-    const lastDay = `${lastDate.getFullYear()}-${lastDate.getMonth()}-${lastDate.getDate()}`;
-    const currentDay = `${currentDate.getFullYear()}-${currentDate.getMonth()}-${currentDate.getDate()}`;
+    const lastDay = `${lastDate.getFullYear()}-${String(lastDate.getMonth() + 1).padStart(2, "0")}-${String(lastDate.getDate()).padStart(2, "0")}`;
+    const currentDay = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, "0")}-${String(currentDate.getDate()).padStart(2, "0")}`;
     if (lastDay !== currentDay && this.context.meta.lastEventAt > 0) {
       this.context.meta.eventsToday = 0;
       this.context.meta.pushesToday = 0;
