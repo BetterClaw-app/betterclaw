@@ -76,7 +76,7 @@ export type FilterDecision =
 
 export interface EventLogEntry {
   event: DeviceEvent;
-  decision: "push" | "drop" | "stored";
+  decision: "push" | "drop" | "stored" | "free_stored";
   reason: string;
   timestamp: number;
 }
@@ -114,7 +114,6 @@ export interface Patterns {
     dropRate7d: number;
     topSources: string[];
   };
-  triggerCooldowns: Record<string, number>;
   computedAt: number;
 }
 
@@ -129,28 +128,27 @@ export interface PluginConfig {
   analysisHour: number;
   deduplicationCooldowns: Record<string, number>;
   defaultCooldown: number;
+  calibrationDays: number;
 }
 
 // Triage profile produced by daily learning agent
 export interface TriageProfile {
-  eventPreferences: Record<string, "push" | "drop" | "context-dependent">;
-  lifeContext: string;
+  summary: string;              // 1-2 sentence description of what the user cares about
   interruptionTolerance: "low" | "normal" | "high";
-  timePreferences: { quietHoursStart?: number; quietHoursEnd?: number; activeStart?: number; activeEnd?: number };
-  sensitivityThresholds: Record<string, number>;
-  locationRules: Record<string, "push" | "drop" | "context-dependent">;
-  summary: string;
-  computedAt: number;
+  computedAt: number;           // epoch seconds
 }
 
 // Reaction tracking for pushed events
+export type ReactionStatus = "pending" | "engaged" | "ignored" | "unclear";
+
 export interface ReactionEntry {
-  idempotencyKey: string;
   subscriptionId: string;
   source: string;
   pushedAt: number;
-  engaged: boolean | null; // null = not yet determined
-  checkedAt?: number;
+  messageSummary: string;       // first ~100 chars of the pushed message
+  status: ReactionStatus;
+  classifiedAt?: number;        // epoch when LLM classified
+  classificationReason?: string; // one-line reason from classifier
 }
 
 // Per-device config from betterclaw.config RPC
