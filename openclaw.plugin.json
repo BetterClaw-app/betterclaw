@@ -2,7 +2,7 @@
   "id": "betterclaw",
   "name": "BetterClaw",
   "description": "Intelligent device context, event filtering, and proactive insights for BetterClaw iOS",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "main": "dist/index.js",
   "skills": ["./skills/betterclaw"],
   "configSchema": {
@@ -52,6 +52,13 @@
         "type": "number",
         "default": 1800,
         "description": "Default dedup cooldown in seconds for subscriptions not in deduplicationCooldowns"
+      },
+      "calibrationDays": {
+        "type": "number",
+        "default": 3,
+        "minimum": 1,
+        "maximum": 14,
+        "description": "Days of calibration before learner profile influences triage decisions"
       }
     },
     "additionalProperties": false
