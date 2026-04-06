@@ -7,7 +7,7 @@ import { RulesEngine } from "./filter.js";
 import { PatternEngine } from "./patterns.js";
 import { processEvent } from "./pipeline.js";
 import type { PipelineDeps } from "./pipeline.js";
-import { BETTERCLAW_COMMANDS, mergeAllowCommands } from "./cli.js";
+import { BETTERCLAW_COMMANDS, BETTERCLAW_TOOLS, mergeAllowCommands, mergeAlsoAllow } from "./cli.js";
 import { storeJwt } from "./jwt.js";
 import { loadTriageProfile, runLearner } from "./learner.js";
 import { ReactionTracker } from "./reactions.js";
@@ -490,37 +490,54 @@ export default {
 
         cmd
           .command("setup")
-          .description("Configure gateway allowedCommands for BetterClaw")
+          .description("Configure gateway allowedCommands and agent tools for BetterClaw")
           .option("--dry-run", "Preview changes without writing")
           .action(async (opts: { dryRun?: boolean }) => {
             try {
               const currentConfig = await api.runtime.config.loadConfig();
-              const existing: string[] =
-                (currentConfig as any)?.gateway?.nodes?.allowCommands ?? [];
-              const merged = mergeAllowCommands(existing, BETTERCLAW_COMMANDS);
-              const added = merged.length - existing.length;
+              const configObj = { ...currentConfig } as any;
+
+              // 1. Merge node allowedCommands
+              const existingCmds: string[] = configObj?.gateway?.nodes?.allowCommands ?? [];
+              const mergedCmds = mergeAllowCommands(existingCmds, BETTERCLAW_COMMANDS);
+              const addedCmds = mergedCmds.length - existingCmds.length;
+
+              // 2. Merge tools.alsoAllow for plugin tools
+              configObj.tools = configObj.tools ?? {};
+              const existingAllow: string[] = configObj.tools.alsoAllow ?? [];
+              const mergedAllow = mergeAlsoAllow(existingAllow, BETTERCLAW_TOOLS);
+              const addedTools = mergedAllow.length - existingAllow.length;
 
               if (opts.dryRun) {
-                console.log(`[dry-run] Would set ${merged.length} allowedCommands (${added} new)`);
-                if (added > 0) {
-                  const newCmds = merged.filter((c) => !existing.includes(c));
-                  console.log(`New commands: ${newCmds.join(", ")}`);
+                if (addedCmds > 0) {
+                  const newCmds = mergedCmds.filter((c) => !existingCmds.includes(c));
+                  console.log(`[dry-run] Would add ${addedCmds} node commands: ${newCmds.join(", ")}`);
+                }
+                if (addedTools > 0) {
+                  const newTools = mergedAllow.filter((t) => !existingAllow.includes(t));
+                  console.log(`[dry-run] Would add ${addedTools} agent tools to alsoAllow: ${newTools.join(", ")}`);
+                }
+                if (addedCmds === 0 && addedTools === 0) {
+                  console.log("[dry-run] Everything already configured.");
                 }
                 return;
               }
 
-              if (added === 0) {
-                console.log(`All ${BETTERCLAW_COMMANDS.length} BetterClaw commands already configured.`);
+              if (addedCmds === 0 && addedTools === 0) {
+                console.log("All BetterClaw commands and tools already configured.");
                 return;
               }
 
-              const configObj = { ...currentConfig } as any;
               configObj.gateway = configObj.gateway ?? {};
               configObj.gateway.nodes = configObj.gateway.nodes ?? {};
-              configObj.gateway.nodes.allowCommands = merged;
+              configObj.gateway.nodes.allowCommands = mergedCmds;
+              configObj.tools.alsoAllow = mergedAllow;
               await api.runtime.config.writeConfigFile(configObj);
 
-              console.log(`Added ${added} new commands (${merged.length} total). Restart gateway to apply.`);
+              const parts: string[] = [];
+              if (addedCmds > 0) parts.push(`${addedCmds} node commands`);
+              if (addedTools > 0) parts.push(`${addedTools} agent tools (${BETTERCLAW_TOOLS.join(", ")})`);
+              console.log(`Added ${parts.join(" + ")}. Restart gateway to apply.`);
             } catch (err) {
               console.error(`Failed to update config: ${err}`);
               process.exit(1);
