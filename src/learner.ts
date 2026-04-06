@@ -42,15 +42,12 @@ export function buildLearnerPrompt(input: LearnerInput): string {
 
   const reactionsSection = reactions.length > 0
     ? `## Notification Reactions\n\n${reactions
-        .map((r) => {
-          const status = r.engaged === true ? "engaged" : r.engaged === false ? "ignored" : "unknown";
-          return `- ${r.source} (${r.subscriptionId}): ${status}`;
-        })
+        .map((r) => `- ${r.source} (${r.subscriptionId}): ${r.status}`)
         .join("\n")}`
     : "## Notification Reactions\nNo push reaction data available.";
 
   const prevSection = previousProfile
-    ? `## Previous Triage Profile\n\nSummary: ${previousProfile.summary}\nLife context: ${previousProfile.lifeContext}\nInterruption tolerance: ${previousProfile.interruptionTolerance}`
+    ? `## Previous Triage Profile\n\nSummary: ${previousProfile.summary}\nInterruption tolerance: ${previousProfile.interruptionTolerance}`
     : "## Previous Triage Profile\nNo previous profile — this is the first analysis.";
 
   return `You are analyzing a user's device event patterns and daily activity to build a personalized notification triage profile.
@@ -67,13 +64,8 @@ ${patternsJson}
 ${prevSection}
 
 Based on all of the above, produce an updated triage profile as JSON with these fields:
-- eventPreferences: Record<string, "push"|"drop"|"context-dependent"> — per event source
-- lifeContext: string — brief description of user's current life situation
-- interruptionTolerance: "low"|"normal"|"high"
-- timePreferences: { quietHoursStart?, quietHoursEnd?, activeStart?, activeEnd? } — hours (0-23)
-- sensitivityThresholds: Record<string, number> — e.g. batteryLevel: 0.15
-- locationRules: Record<string, "push"|"drop"|"context-dependent"> — per zone name
 - summary: string — 1-2 sentence human-readable summary of this user's preferences
+- interruptionTolerance: "low"|"normal"|"high"
 
 Respond with ONLY the JSON object, no markdown fences.`;
 }
@@ -85,15 +77,10 @@ export function parseTriageProfile(text: string): TriageProfile | null {
     if (!parsed.summary || !parsed.interruptionTolerance) return null;
     const validTolerances = ["low", "normal", "high"];
     return {
-      eventPreferences: parsed.eventPreferences ?? {},
-      lifeContext: parsed.lifeContext ?? "",
+      summary: parsed.summary,
       interruptionTolerance: validTolerances.includes(parsed.interruptionTolerance)
         ? parsed.interruptionTolerance
         : "normal",
-      timePreferences: parsed.timePreferences ?? {},
-      sensitivityThresholds: parsed.sensitivityThresholds ?? {},
-      locationRules: parsed.locationRules ?? {},
-      summary: parsed.summary,
       computedAt: parsed.computedAt ?? Date.now() / 1000,
     };
   } catch {

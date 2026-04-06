@@ -63,12 +63,13 @@ describe("learner", () => {
     it("includes reaction data", () => {
       const reactions: ReactionEntry[] = [
         {
-          idempotencyKey: "key-1",
           subscriptionId: "geo-1",
           source: "geofence.triggered",
           pushedAt: 1740000100,
-          engaged: false,
-          checkedAt: 1740000200,
+          messageSummary: "You arrived at Office",
+          status: "ignored",
+          classifiedAt: 1740000200,
+          classificationReason: "User did not open app",
         },
       ];
       const prompt = buildLearnerPrompt({
@@ -83,12 +84,7 @@ describe("learner", () => {
 
     it("includes previous profile for continuity", () => {
       const prev: TriageProfile = {
-        eventPreferences: {},
-        lifeContext: "vacation",
         interruptionTolerance: "low",
-        timePreferences: {},
-        sensitivityThresholds: {},
-        locationRules: {},
         summary: "User on vacation, low tolerance",
         computedAt: 1740000000,
       };
@@ -106,18 +102,33 @@ describe("learner", () => {
   describe("parseTriageProfile", () => {
     it("parses valid profile JSON", () => {
       const json = JSON.stringify({
-        eventPreferences: { "geofence.triggered": "drop" },
-        lifeContext: "busy work week",
-        interruptionTolerance: "low",
-        timePreferences: { quietHoursStart: 22, quietHoursEnd: 7 },
-        sensitivityThresholds: { batteryLevel: 0.15 },
-        locationRules: { Office: "drop" },
         summary: "User is busy, drop routine events",
+        interruptionTolerance: "low",
       });
       const result = parseTriageProfile(json);
       expect(result).not.toBeNull();
-      expect(result!.lifeContext).toBe("busy work week");
+      expect(result!.summary).toBe("User is busy, drop routine events");
+      expect(result!.interruptionTolerance).toBe("low");
       expect(result!.computedAt).toBeGreaterThan(0);
+    });
+
+    it("ignores extra fields from old schema", () => {
+      const json = JSON.stringify({
+        summary: "User is busy",
+        interruptionTolerance: "normal",
+        eventPreferences: { "geofence.triggered": "drop" },
+        lifeContext: "busy work week",
+        timePreferences: { quietHoursStart: 22 },
+        sensitivityThresholds: { batteryLevel: 0.15 },
+        locationRules: { Office: "drop" },
+      });
+      const result = parseTriageProfile(json);
+      expect(result).not.toBeNull();
+      expect(result).toEqual({
+        summary: "User is busy",
+        interruptionTolerance: "normal",
+        computedAt: expect.any(Number),
+      });
     });
 
     it("returns null on malformed JSON", () => {
