@@ -70,7 +70,6 @@ export default {
 
     // Calibration state
     let calibrationStartedAt: number | null = null;
-    let pingReceived = false;
 
     const calibrationFile = path.join(stateDir, "calibration.json");
     (async () => {
@@ -158,8 +157,6 @@ export default {
       }
 
       ctxManager.setRuntimeState({ tier, smartMode });
-
-      pingReceived = true;
 
       // Initialize calibration on first premium ping
       if ((tier === "premium" || tier === "premium+") && calibrationStartedAt === null) {
@@ -365,7 +362,6 @@ export default {
     // Agent tools
     api.registerTool(
       createCheckTierTool(ctxManager, () => ({
-        pingReceived,
         calibrating: isCalibrating(),
         calibrationEndsAt: calibrationStartedAt
           ? calibrationStartedAt + config.calibrationDays * 86400
