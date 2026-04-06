@@ -25,7 +25,14 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   context.updateFromEvent(event);
   await context.save();
 
-  // Gate event forwarding behind premium entitlement
+  // Tier gate: free users get store-only path — no triage, no push
+  if (context.getRuntimeState().tier === "free") {
+    api.logger.info(`betterclaw: event stored (free tier)`);
+    await events.append({ event, decision: "free_stored", reason: "free tier", timestamp: Date.now() / 1000 });
+    return;
+  }
+
+  // Gate event forwarding behind premium entitlement (security boundary)
   const entitlementError = requireEntitlement("premium");
   if (entitlementError) {
     api.logger.info(`betterclaw: event blocked (no premium entitlement)`);
@@ -50,7 +57,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
       event,
       deps.context,
       profile,
-      { triageModel: deps.config.triageModel, triageApiBase: deps.config.triageApiBase },
+      { triageModel: deps.config.triageModel, triageApiBase: deps.config.triageApiBase, budgetUsed: context.get().meta.pushesToday, budgetTotal: effectiveBudget },
       async () => {
         try {
           const auth = await deps.api.runtime.modelAuth.resolveApiKeyForProvider({
@@ -66,16 +73,17 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
     );
 
     if (triageResult.push) {
-      const pushed = await pushToAgent(deps, event, `triage: ${triageResult.reason}`);
+      const message = formatEnrichedMessage(event, deps.context);
+      const pushed = await pushToAgent(deps, event, `triage: ${triageResult.reason}`, message);
 
       if (pushed) {
         rules.recordFired(event.subscriptionId, event.firedAt);
         context.recordPush();
         deps.reactions.recordPush({
-          idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
           subscriptionId: event.subscriptionId,
           source: event.source,
           pushedAt: Date.now() / 1000,
+          messageSummary: message.slice(0, 100),
         });
       }
 
@@ -100,16 +108,17 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   }
 
   if (decision.action === "push") {
-    const pushed = await pushToAgent(deps, event, decision.reason);
+    const message = formatEnrichedMessage(event, deps.context);
+    const pushed = await pushToAgent(deps, event, decision.reason, message);
 
     if (pushed) {
       rules.recordFired(event.subscriptionId, event.firedAt);
       context.recordPush();
       deps.reactions.recordPush({
-        idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
         subscriptionId: event.subscriptionId,
         source: event.source,
         pushedAt: Date.now() / 1000,
+        messageSummary: message.slice(0, 100),
       });
     }
 
@@ -134,8 +143,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   await deps.reactions.save();
 }
 
-async function pushToAgent(deps: PipelineDeps, event: DeviceEvent, reason: string): Promise<boolean> {
-  const message = formatEnrichedMessage(event, deps.context);
+async function pushToAgent(deps: PipelineDeps, event: DeviceEvent, reason: string, message: string): Promise<boolean> {
   const idempotencyKey = `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`;
 
   try {
