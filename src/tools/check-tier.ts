@@ -28,6 +28,7 @@ export function createCheckTierTool(ctx: ContextManager, getState: () => CheckTi
               cacheInstruction: "Re-check in about a minute.",
             }, null, 2),
           }],
+          details: undefined,
         };
       }
       const cacheUntil = Math.floor(Date.now() / 1000) + 86400;
@@ -55,6 +56,7 @@ export function createCheckTierTool(ctx: ContextManager, getState: () => CheckTi
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        details: undefined,
       };
     },
   };
