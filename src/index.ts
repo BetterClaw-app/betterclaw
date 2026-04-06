@@ -141,9 +141,9 @@ export default {
 
     // Ping health check
     api.registerGatewayMethod("betterclaw.ping", async ({ params, respond, context }) => {
-      const validTiers: Array<"free" | "premium" | "premium+"> = ["free", "premium", "premium+"];
+      const validTiers: Array<"free" | "premium"> = ["free", "premium"];
       const rawTier = (params as Record<string, unknown>)?.tier as string;
-      const tier = validTiers.includes(rawTier as any) ? (rawTier as "free" | "premium" | "premium+") : "free";
+      const tier = validTiers.includes(rawTier as any) ? (rawTier as "free" | "premium") : "free";
       const smartMode = (params as Record<string, unknown>)?.smartMode === true;
 
       const jwt = (params as Record<string, unknown>)?.jwt as string | undefined;
@@ -159,7 +159,7 @@ export default {
       ctxManager.setRuntimeState({ tier, smartMode });
 
       // Initialize calibration on first premium ping
-      if ((tier === "premium" || tier === "premium+") && calibrationStartedAt === null) {
+      if (tier === "premium" && calibrationStartedAt === null) {
         const existingProfile = await loadTriageProfile(stateDir);
         if (existingProfile?.computedAt) {
           calibrationStartedAt = existingProfile.computedAt - config.calibrationDays * 86400;

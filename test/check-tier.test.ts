@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createCheckTierTool } from "../src/tools/check-tier.js";
 import { ContextManager } from "../src/context.js";
 
-function makeCtx(tier: "free" | "premium" | "premium+" | null): ContextManager {
+function makeCtx(tier: "free" | "premium" | null): ContextManager {
   const ctx = new ContextManager("/tmp/test-check-tier");
   if (tier) {
     ctx.setRuntimeState({ tier, smartMode: tier !== "free" });

@@ -46,7 +46,7 @@ export class ContextManager {
       delete parsed._timestamps;
       const savedTier = parsed._tier;
       delete parsed._tier;
-      if (savedTier === "free" || savedTier === "premium" || savedTier === "premium+") {
+      if (savedTier === "free" || savedTier === "premium") {
         this.runtimeState = { ...this.runtimeState, tier: savedTier };
       }
       this.context = parsed as DeviceContext;

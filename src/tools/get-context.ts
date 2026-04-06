@@ -14,7 +14,7 @@ export function createGetContextTool(ctx: ContextManager, stateDir?: string) {
       const patterns = await ctx.readPatterns();
       const dataAge = ctx.getDataAge();
 
-      const isPremium = runtime.tier === "premium" || runtime.tier === "premium+";
+      const isPremium = runtime.tier === "premium";
 
       const result: Record<string, unknown> = {
         tierHint: {
