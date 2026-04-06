@@ -125,7 +125,6 @@ describe("PatternEngine", () => {
 
   it("emptyPatterns returns valid structure", () => {
     const p = emptyPatterns();
-    expect(p.triggerCooldowns).toEqual({});
     expect(p.healthTrends.stepsAvg7d).toBeNull();
     expect(p.computedAt).toBe(0);
   });

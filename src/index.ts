@@ -5,7 +5,6 @@ import { createGetContextTool } from "./tools/get-context.js";
 import { EventLog } from "./events.js";
 import { RulesEngine } from "./filter.js";
 import { PatternEngine } from "./patterns.js";
-import { ProactiveEngine } from "./triggers.js";
 import { processEvent } from "./pipeline.js";
 import type { PipelineDeps } from "./pipeline.js";
 import { BETTERCLAW_COMMANDS, mergeAllowCommands } from "./cli.js";
@@ -233,16 +232,6 @@ export default {
             }
           : null;
 
-        const triggerIds = ["low-battery-away", "unusual-inactivity", "sleep-deficit", "routine-deviation", "health-weekly-digest"];
-        const cooldowns: Record<string, number> = {};
-        if (patterns?.triggerCooldowns) {
-          for (const id of triggerIds) {
-            const ts = patterns.triggerCooldowns[id];
-            if (ts != null) cooldowns[id] = ts;
-          }
-        }
-        const triggers = patterns ? { cooldowns } : null;
-
         respond(true, {
           tier: runtime.tier,
           smartMode: runtime.smartMode,
@@ -253,7 +242,6 @@ export default {
           routines,
           timestamps,
           triageProfile: profile ?? null,
-          triggers,
         });
       } catch (err) {
         api.logger.error(`betterclaw.context error: ${err instanceof Error ? err.message : String(err)}`);
@@ -405,9 +393,8 @@ export default {
       }
     });
 
-    // Pattern engine + proactive engine
+    // Pattern engine
     const patternEngine = new PatternEngine(ctxManager, eventLog, config.patternWindowDays);
-    const proactiveEngine = new ProactiveEngine(ctxManager, api, config);
 
     // Background service
     api.registerService({
@@ -431,12 +418,10 @@ export default {
             }
           }
         });
-        proactiveEngine.startSchedule();
         api.logger.info("betterclaw: background services started");
       },
       stop: () => {
         patternEngine.stopSchedule();
-        proactiveEngine.stopSchedule();
         api.logger.info("betterclaw: background services stopped");
       },
     });
