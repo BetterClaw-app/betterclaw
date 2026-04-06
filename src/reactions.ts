@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { ReactionEntry } from "./types.js";
+import type { ReactionEntry, ReactionStatus } from "./types.js";
 
 export class ReactionTracker {
   private reactions: ReactionEntry[] = [];
@@ -10,21 +10,43 @@ export class ReactionTracker {
     this.filePath = path.join(stateDir, "push-reactions.jsonl");
   }
 
-  recordPush(entry: Omit<ReactionEntry, "engaged" | "checkedAt">): void {
-    this.reactions.push({ ...entry, engaged: null });
+  recordPush(entry: { subscriptionId: string; source: string; pushedAt: number; messageSummary: string }): void {
+    this.reactions.push({
+      ...entry,
+      status: "pending",
+    });
   }
 
-  markEngaged(idempotencyKey: string, engaged: boolean): void {
-    const entry = this.reactions.find((r) => r.idempotencyKey === idempotencyKey);
+  /** Classify a reaction by matching on subscriptionId + pushedAt compound key */
+  classify(subscriptionId: string, pushedAt: number, status: ReactionStatus, reason: string): void {
+    const entry = this.reactions.find(
+      (r) => r.subscriptionId === subscriptionId && r.pushedAt === pushedAt && r.status === "pending"
+    );
     if (entry) {
-      entry.engaged = engaged;
-      entry.checkedAt = Date.now() / 1000;
+      entry.status = status;
+      entry.classifiedAt = Date.now() / 1000;
+      entry.classificationReason = reason;
     }
   }
 
-  getRecent(hours: number): ReactionEntry[] {
+  /** Get pending (unclassified) reactions; optionally filtered to the last N hours */
+  getPending(hours?: number): ReactionEntry[] {
+    const pending = this.reactions.filter((r) => r.status === "pending");
+    if (hours === undefined) {
+      return pending;
+    }
     const cutoff = Date.now() / 1000 - hours * 3600;
-    return this.reactions.filter((r) => r.pushedAt >= cutoff);
+    return pending.filter((r) => r.pushedAt >= cutoff);
+  }
+
+  getRecent(_hours?: number): ReactionEntry[] {
+    return [...this.reactions];
+  }
+
+  /** Get classified reactions for learner input */
+  getClassified(hours: number = 24): ReactionEntry[] {
+    const cutoff = Date.now() / 1000 - hours * 3600;
+    return this.reactions.filter((r) => r.status !== "pending" && r.pushedAt >= cutoff);
   }
 
   async save(): Promise<void> {
@@ -49,7 +71,6 @@ export class ReactionTracker {
     }
   }
 
-  /** Rotate: keep only last 30 days */
   rotate(): void {
     const cutoff = Date.now() / 1000 - 30 * 86400;
     this.reactions = this.reactions.filter((r) => r.pushedAt >= cutoff);

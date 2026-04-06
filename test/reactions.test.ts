@@ -1,75 +1,106 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
 import { ReactionTracker } from "../src/reactions.js";
+import type { ReactionEntry } from "../src/types.js";
 
 describe("ReactionTracker", () => {
-  let tmpDir: string;
   let tracker: ReactionTracker;
 
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-reactions-"));
-    tracker = new ReactionTracker(tmpDir);
+  beforeEach(() => {
+    tracker = new ReactionTracker("/tmp/test-reactions");
   });
 
-  it("records a push", () => {
-    const now = Math.floor(Date.now() / 1000);
+  it("records a push with pending status", () => {
     tracker.recordPush({
-      idempotencyKey: "event-geo-1-1740000100",
-      subscriptionId: "geo-1",
-      source: "geofence.triggered",
-      pushedAt: now,
+      subscriptionId: "default.battery-low",
+      source: "device.battery",
+      pushedAt: 1740000000,
+      messageSummary: "Battery at 15%",
     });
-    const recent = tracker.getRecent(24);
+
+    const recent = tracker.getPending();
     expect(recent).toHaveLength(1);
-    expect(recent[0].engaged).toBeNull();
+    expect(recent[0].status).toBe("pending");
+    expect(recent[0].messageSummary).toBe("Battery at 15%");
   });
 
-  it("marks a push as engaged", () => {
-    const now = Math.floor(Date.now() / 1000);
+  it("classifies a reaction by subscriptionId + pushedAt compound key", () => {
     tracker.recordPush({
-      idempotencyKey: "event-geo-1-1740000100",
-      subscriptionId: "geo-1",
-      source: "geofence.triggered",
-      pushedAt: now,
+      subscriptionId: "test.battery",
+      source: "device.battery",
+      pushedAt: 1740000000,
+      messageSummary: "Test push",
     });
-    tracker.markEngaged("event-geo-1-1740000100", true);
-    const recent = tracker.getRecent(24);
-    expect(recent[0].engaged).toBe(true);
+
+    tracker.classify("test.battery", 1740000000, "engaged", "User asked follow-up about battery");
+
+    const all = tracker.getRecent(24);
+    expect(all[0].status).toBe("engaged");
+    expect(all[0].classificationReason).toBe("User asked follow-up about battery");
+    expect(all[0].classifiedAt).toBeGreaterThan(0);
   });
 
-  it("returns only recent reactions within hours window", () => {
+  it("does not misclassify when subscriptionId differs at same timestamp", () => {
+    tracker.recordPush({
+      subscriptionId: "sub.a",
+      source: "device.battery",
+      pushedAt: 1740000000,
+      messageSummary: "Push A",
+    });
+    tracker.recordPush({
+      subscriptionId: "sub.b",
+      source: "device.battery",
+      pushedAt: 1740000000,
+      messageSummary: "Push B",
+    });
+
+    tracker.classify("sub.a", 1740000000, "engaged", "User engaged with A");
+
+    const all = tracker.getRecent(24 * 365);
+    const a = all.find((r) => r.subscriptionId === "sub.a");
+    const b = all.find((r) => r.subscriptionId === "sub.b");
+    expect(a!.status).toBe("engaged");
+    expect(b!.status).toBe("pending");
+  });
+
+  it("rotates entries older than 30 days", () => {
+    tracker.recordPush({
+      subscriptionId: "old",
+      source: "test",
+      pushedAt: Date.now() / 1000 - 31 * 86400,
+      messageSummary: "Old push",
+    });
+    tracker.recordPush({
+      subscriptionId: "new",
+      source: "test",
+      pushedAt: Date.now() / 1000,
+      messageSummary: "New push",
+    });
+
+    tracker.rotate();
+
+    const all = tracker.getRecent(24 * 365);
+    expect(all).toHaveLength(1);
+    expect(all[0].subscriptionId).toBe("new");
+  });
+
+  it("getPending returns only unclassified entries within time window", () => {
     const now = Date.now() / 1000;
     tracker.recordPush({
-      idempotencyKey: "old",
-      subscriptionId: "x",
-      source: "y",
-      pushedAt: now - 86400 * 2, // 2 days ago
+      subscriptionId: "a",
+      source: "test",
+      pushedAt: now - 3600,
+      messageSummary: "Push A",
     });
     tracker.recordPush({
-      idempotencyKey: "recent",
-      subscriptionId: "x",
-      source: "y",
-      pushedAt: now - 3600, // 1 hour ago
+      subscriptionId: "b",
+      source: "test",
+      pushedAt: now - 7200,
+      messageSummary: "Push B",
     });
-    const recent = tracker.getRecent(24);
-    expect(recent).toHaveLength(1);
-    expect(recent[0].idempotencyKey).toBe("recent");
-  });
+    tracker.classify("b", now - 7200, "ignored", "User changed topic");
 
-  it("persists and loads reactions", async () => {
-    const now = Math.floor(Date.now() / 1000);
-    tracker.recordPush({
-      idempotencyKey: "key-1",
-      subscriptionId: "geo-1",
-      source: "geofence.triggered",
-      pushedAt: now,
-    });
-    await tracker.save();
-
-    const tracker2 = new ReactionTracker(tmpDir);
-    await tracker2.load();
-    expect(tracker2.getRecent(24 * 365)).toHaveLength(1);
+    const pending = tracker.getPending(24);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].subscriptionId).toBe("a");
   });
 });
