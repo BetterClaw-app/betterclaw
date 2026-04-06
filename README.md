@@ -19,34 +19,39 @@
 
 This is the server-side plugin for [BetterClaw](https://betterclaw.app), an iOS app that connects your iPhone's sensors to your [OpenClaw](https://openclaw.dev) AI agent. The app streams device events (location, battery, health, geofences) to your gateway — this plugin decides what to do with them.
 
-The plugin is the **sole event gateway** for all tiers. Smart mode controls filtering depth: OFF = passive context store, ON = full pipeline with rules, LLM triage, and proactive insights.
+The plugin differentiates between **free** and **premium** tiers:
+
+- **Free** — passive context store. The agent can pull device snapshots via `get_context`, but no events are pushed proactively.
+- **Premium** — full smart mode pipeline with rules-based filtering, LLM triage, engagement tracking, and a daily learner that adapts to your preferences.
 
 ```
   BetterClaw iOS App          This Plugin (on gateway)              Agent
  ──────────────────          ────────────────────────             ────────
-                                       │
-  battery ──────▶  ┌───────────────────┼───────────────────┐
-  location ─────▶  │  Rules Engine     │  Context Store     │
-  health ───────▶  │  LLM Triage       │  Pattern Engine    │ ──▶  filtered events
-  geofence ─────▶  │  Daily Learner    │  Proactive Triggers│      + full context
-                   └───────────────────┼───────────────────┘
-                                       │
-                                 proactive insights
-                              (low battery + away from
-                               home, sleep deficit, etc.)
+                                       |
+  battery ──────>  +-----------------------------------------+
+  location ─────>  |  Tier Gate        |  Context Store       |
+  health ───────>  |  Rules Engine     |  Pattern Engine      |
+  geofence ─────>  |  LLM Triage       |  Reaction Scanner    | ──>  check_tier
+                   |  Daily Learner    |  Calibration         |      get_context
+                   +-----------------------------------------+      node commands
+                                       |
+                             filtered push events
+                           (premium + smart mode ON)
 ```
 
 ## Features
 
-- **Tier-Aware Smart Mode** — Smart mode ON = full pipeline (rules → triage → push). Smart mode OFF = passive store (context updated, no filtering or pushing). Synced via periodic heartbeat from iOS.
-- **Two-Layer LLM Triage** — Daily learner builds a personalized triage profile from OpenClaw memory summaries + event reactions. Per-event cheap LLM call with structured output for ambiguous events.
-- **Smart Filtering** — Per-source dedup, cooldown windows, and a configurable daily push budget prevent event spam
-- **Device Context** — Rolling state snapshot with per-field timestamps: battery, GPS, zone occupancy, health metrics, activity classification
-- **Pattern Recognition** — Daily analysis computes location routines, health trends (7d/30d baselines), and event frequency stats
-- **Proactive Insights** — Combined-signal triggers: low battery away from home, unusual inactivity, sleep deficit, routine deviations, weekly digest
-- **Per-Device Config** — iOS app can override push budget and proactive settings at runtime via RPC
-- **Agent Tool** — `get_context` tool lets your agent read the full device snapshot, tier, smart mode status, and triage profile on demand
-- **CLI Setup** — `openclaw betterclaw setup` configures gateway allowedCommands automatically
+- **Tier-Aware Routing** — `check_tier` tool tells the agent whether to use node commands (premium, fresh data) or `get_context` (free, cached snapshots). Includes a 24h cache TTL so the agent doesn't re-check every turn.
+- **Free = Pull-Only** — Events are stored for context but never triaged or pushed. `get_context` with staleness indicators (`dataAgeSeconds`) is the only data source.
+- **Premium Smart Mode** — Rules engine + LLM triage with fail-closed error handling and budget-aware prompts. Daily push budget prevents event spam.
+- **Engagement Tracking** — Deterministic transcript scanner finds pushed messages by timestamp, then an LLM classifies user engagement as `engaged`, `ignored`, or `unclear`. Feeds into the learner.
+- **Adaptive Learner** — Daily subagent builds a simplified triage profile (`summary` + `interruptionTolerance`) from event history, engagement data, and workspace memory.
+- **Calibration Period** — First 3 days after install, triage runs in rules-only mode while the system collects engagement data. Skipped automatically for users upgrading from v2.
+- **Device Context** — Rolling state snapshot with per-field timestamps and `dataAgeSeconds`: battery, GPS, zone occupancy, health metrics, activity classification.
+- **Pattern Recognition** — Daily analysis computes location routines, health trends (7d/30d baselines), and event frequency stats.
+- **Per-Device Config** — iOS app can override push budget at runtime via RPC.
+- **Agent Tools** — `check_tier` for routing decisions, `get_context` for patterns/trends/cached state.
+- **CLI Setup** — `openclaw betterclaw setup` configures gateway allowedCommands automatically.
 
 ## Requirements
 
@@ -74,8 +79,8 @@ Add to your `openclaw.json`:
           "triageModel": "openai/gpt-4o-mini",
           "pushBudgetPerDay": 10,
           "patternWindowDays": 14,
-          "proactiveEnabled": true,
-          "analysisHour": 5
+          "analysisHour": 5,
+          "calibrationDays": 3
         }
       }
     }
@@ -89,14 +94,14 @@ All config keys are optional — defaults are shown above.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `triageModel` | `openai/gpt-4o-mini` | Model for per-event triage (supports `provider/model` format) |
-| `triageApiBase` | — | Optional base URL for OpenAI-compatible endpoint (e.g., Ollama) |
+| `triageModel` | `openai/gpt-4o-mini` | Model for per-event triage and engagement classification |
+| `triageApiBase` | -- | Optional base URL for OpenAI-compatible endpoint (e.g., Ollama) |
 | `pushBudgetPerDay` | `10` | Max events forwarded to the agent per day |
 | `patternWindowDays` | `14` | Days of event history used for pattern computation |
-| `proactiveEnabled` | `true` | Enable proactive combined-signal insights |
 | `analysisHour` | `5` | Hour (0-23, system timezone) for daily pattern + learner analysis |
+| `calibrationDays` | `3` | Days of rules-only triage before learner profile kicks in |
 
-> **Migration:** `llmModel` still works as a deprecated alias for `triageModel`.
+> **Migration from v2:** `llmModel` still works as a deprecated alias for `triageModel`. `proactiveEnabled` is ignored (proactive triggers removed in v3).
 
 ## How It Works
 
@@ -104,26 +109,35 @@ All config keys are optional — defaults are shown above.
 
 Every device event from the BetterClaw app goes through the plugin:
 
-1. **Context Update** — Device context store is always updated with the latest sensor data.
-2. **Smart Mode Check** — If smart mode is OFF, the event is stored and processing stops. If ON, continues.
-3. **Rules Engine** — Checks dedup, cooldown timers, and daily budget. Critical events (geofence, low battery) always push. Obvious spam is dropped.
-4. **LLM Triage** — Ambiguous events get a cheap LLM call with the personalized triage profile for a push/drop decision.
-5. **Agent Injection** — Events that pass are injected into the agent's main session with formatted context.
+1. **Context Update** — Device context store is always updated with the latest sensor data (all tiers).
+2. **Tier Gate** — Free-tier events are logged as `free_stored` and processing stops. Premium continues.
+3. **JWT Verification** — Cryptographic entitlement check (security boundary, not bypassable via tier spoofing).
+4. **Smart Mode Check** — If smart mode is OFF, the event is stored. If ON, continues to filtering.
+5. **Rules Engine** — Dedup, cooldown timers, daily budget. Critical events (geofence, low battery) always push.
+6. **LLM Triage** — Ambiguous events get a cheap LLM call with the triage profile and remaining budget context.
+7. **Agent Push** — Events that pass are injected into the agent session. A reaction entry is recorded for later engagement scanning.
 
 ### Background Services
 
-- **Pattern Engine + Daily Learner** (daily at `analysisHour`) — Computes location routines, health trends, event stats. Then runs a subagent turn to build a personalized triage profile from OpenClaw memory summaries and notification reaction data.
-- **Proactive Engine** (hourly) — Evaluates combined-signal conditions and fires insights when thresholds are met.
+- **Pattern Engine + Reaction Scanner + Learner** (daily at `analysisHour`) — Computes location routines, health trends, event stats. Then scans session transcripts for engagement with past pushes (deterministic timestamp search + LLM classification). Finally runs a subagent to build a personalized triage profile from engagement data and workspace memory.
+
+### Agent Tools
+
+| Tool | Purpose |
+|------|---------|
+| `check_tier` | Returns tier + routing instructions + cache TTL. No device data. Call first. |
+| `get_context` | Returns patterns, trends, zone state, cached device snapshots with `dataAgeSeconds`. |
 
 ### Gateway RPCs
 
 | RPC | Direction | Purpose |
 |-----|-----------|---------|
-| `betterclaw.event` | iOS → plugin | Send a device event for processing |
-| `betterclaw.ping` | iOS → plugin | Heartbeat: sync tier + smartMode, get budget info |
-| `betterclaw.config` | iOS → plugin | Per-device settings override |
-| `betterclaw.context` | iOS → plugin | Full context for iOS Context tab |
-| `betterclaw.snapshot` | iOS → plugin | Bulk device state catch-up |
+| `betterclaw.event` | iOS -> plugin | Send a device event for processing |
+| `betterclaw.ping` | iOS -> plugin | Heartbeat: sync tier + smartMode, init calibration |
+| `betterclaw.config` | iOS -> plugin | Per-device settings override |
+| `betterclaw.context` | iOS -> plugin | Full context for iOS Context tab (includes `calibrating` flag) |
+| `betterclaw.snapshot` | iOS -> plugin | Bulk device state catch-up |
+| `betterclaw.learn` | iOS -> plugin | Trigger on-demand triage profile learning |
 
 ## Commands
 
@@ -135,9 +149,10 @@ Every device event from the BetterClaw app goes through the plugin:
 
 | Plugin | BetterClaw iOS | OpenClaw |
 |--------|----------------|----------|
+| 3.x    | 2.x+           | 2025.12+ |
 | 2.x    | 2.x+           | 2025.12+ |
 | 1.x    | 1.x            | 2025.12+ |
 
 ## License
 
-[AGPL-3.0](LICENSE) — Free to use, modify, and self-host. Derivative works must remain open source.
+[AGPL-3.0](LICENSE) -- Free to use, modify, and self-host. Derivative works must remain open source.
