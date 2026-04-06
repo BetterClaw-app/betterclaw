@@ -53,14 +53,11 @@ export class PatternEngine {
     const windowStart = Date.now() / 1000 - this.windowDays * 86400;
     const entries = await this.events.readSince(windowStart);
 
-    const existing = (await this.context.readPatterns()) ?? emptyPatterns();
-
     const patterns: Patterns = {
       locationRoutines: computeLocationRoutines(entries),
       healthTrends: computeHealthTrends(entries),
       batteryPatterns: computeBatteryPatterns(entries),
       eventStats: computeEventStats(entries),
-      triggerCooldowns: existing.triggerCooldowns,
       computedAt: Date.now() / 1000,
     };
 
@@ -96,7 +93,6 @@ export function emptyPatterns(): Patterns {
       dropRate7d: 0,
       topSources: [],
     },
-    triggerCooldowns: {},
     computedAt: 0,
   };
 }
