@@ -11,7 +11,7 @@ function makeCtx(tier: "free" | "premium" | "premium+" | null): ContextManager {
 }
 
 describe("check_tier tool", () => {
-  const defaultState = () => ({ pingReceived: true, calibrating: false });
+  const defaultState = () => ({ calibrating: false });
 
   it("returns premium tier with node command instructions", async () => {
     const tool = createCheckTierTool(makeCtx("premium"), defaultState);
@@ -33,9 +33,8 @@ describe("check_tier tool", () => {
     expect(parsed.dataPath).toContain("cached snapshot");
   });
 
-  it("returns unknown tier with short TTL when no ping received", async () => {
-    const ctx = new ContextManager("/tmp/test-check-tier-unknown");
-    const tool = createCheckTierTool(ctx, () => ({ pingReceived: false, calibrating: false }));
+  it("returns unknown when tier is null (no ping received)", async () => {
+    const tool = createCheckTierTool(makeCtx(null), defaultState);
     const result = await tool.execute("test-id", {});
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.tier).toBe("unknown");
@@ -45,7 +44,6 @@ describe("check_tier tool", () => {
   it("includes calibrating flag when system is calibrating", async () => {
     const endsAt = Date.now() / 1000 + 86400 * 2;
     const tool = createCheckTierTool(makeCtx("premium"), () => ({
-      pingReceived: true,
       calibrating: true,
       calibrationEndsAt: endsAt,
     }));

@@ -157,8 +157,7 @@ export interface DeviceConfig {
   proactiveEnabled?: boolean;
 }
 
-// Runtime state (not persisted)
 export interface RuntimeState {
-  tier: "free" | "premium" | "premium+";
+  tier: "free" | "premium" | "premium+" | null;
   smartMode: boolean;
 }

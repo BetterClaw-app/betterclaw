@@ -211,8 +211,8 @@ describe("ContextManager", () => {
   });
 
   describe("runtime state", () => {
-    it("defaults to free tier and smartMode off", () => {
-      expect(ctx.getRuntimeState()).toEqual({ tier: "free", smartMode: false });
+    it("defaults to null tier and smartMode off", () => {
+      expect(ctx.getRuntimeState()).toEqual({ tier: null, smartMode: false });
     });
 
     it("updates runtime state from ping", () => {
@@ -220,13 +220,15 @@ describe("ContextManager", () => {
       expect(ctx.getRuntimeState()).toEqual({ tier: "premium", smartMode: true });
     });
 
-    it("runtime state is not persisted", async () => {
+    it("persists tier across load", async () => {
       ctx.setRuntimeState({ tier: "premium", smartMode: true });
       await ctx.save();
 
       const ctx2 = new ContextManager(tmpDir);
       await ctx2.load();
-      expect(ctx2.getRuntimeState()).toEqual({ tier: "free", smartMode: false });
+      expect(ctx2.getRuntimeState().tier).toBe("premium");
+      // smartMode is ephemeral — not persisted
+      expect(ctx2.getRuntimeState().smartMode).toBe(false);
     });
   });
 });

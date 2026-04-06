@@ -9,7 +9,7 @@ export class ContextManager {
   private contextPath: string;
   private patternsPath: string;
   private context: DeviceContext;
-  private runtimeState: RuntimeState = { tier: "free", smartMode: false };
+  private runtimeState: RuntimeState = { tier: null, smartMode: false };
   private timestamps: Record<string, number> = {};
   private deviceConfig: DeviceConfig = {};
 
@@ -44,6 +44,11 @@ export class ContextManager {
       const parsed = JSON.parse(raw);
       this.timestamps = parsed._timestamps ?? {};
       delete parsed._timestamps;
+      const savedTier = parsed._tier;
+      delete parsed._tier;
+      if (savedTier === "free" || savedTier === "premium" || savedTier === "premium+") {
+        this.runtimeState = { ...this.runtimeState, tier: savedTier };
+      }
       this.context = parsed as DeviceContext;
     } catch {
       this.context = ContextManager.empty();
@@ -78,7 +83,7 @@ export class ContextManager {
 
   async save(): Promise<void> {
     await fs.mkdir(path.dirname(this.contextPath), { recursive: true });
-    const data = { ...this.context, _timestamps: this.timestamps };
+    const data = { ...this.context, _timestamps: this.timestamps, _tier: this.runtimeState.tier };
     await fs.writeFile(this.contextPath, JSON.stringify(data, null, 2) + "\n", "utf8");
     const configPath = path.join(path.dirname(this.contextPath), "device-config.json");
     await fs.writeFile(configPath, JSON.stringify(this.deviceConfig, null, 2) + "\n", "utf8");

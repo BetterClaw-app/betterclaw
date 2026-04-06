@@ -2,7 +2,6 @@ import { Type } from "@sinclair/typebox";
 import type { ContextManager } from "../context.js";
 
 export interface CheckTierState {
-  pingReceived: boolean;
   calibrating: boolean;
   calibrationEndsAt?: number;
 }
@@ -16,8 +15,9 @@ export function createCheckTierTool(ctx: ContextManager, getState: () => CheckTi
     parameters: Type.Object({}),
     async execute(_id: string, _params: Record<string, unknown>) {
       const state = getState();
+      const runtime = ctx.getRuntimeState();
 
-      if (!state.pingReceived) {
+      if (runtime.tier === null) {
         return {
           content: [{
             type: "text" as const,
@@ -30,8 +30,6 @@ export function createCheckTierTool(ctx: ContextManager, getState: () => CheckTi
           }],
         };
       }
-
-      const runtime = ctx.getRuntimeState();
       const cacheUntil = Math.floor(Date.now() / 1000) + 86400;
 
       const isPremium = runtime.tier === "premium" || runtime.tier === "premium+";
