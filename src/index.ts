@@ -11,6 +11,9 @@ import { BETTERCLAW_COMMANDS, mergeAllowCommands } from "./cli.js";
 import { storeJwt } from "./jwt.js";
 import { loadTriageProfile, runLearner } from "./learner.js";
 import { ReactionTracker } from "./reactions.js";
+import { createCheckTierTool } from "./tools/check-tier.js";
+import { scanPendingReactions } from "./reaction-scanner.js";
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -32,6 +35,7 @@ const DEFAULT_CONFIG: PluginConfig = {
   analysisHour: 5,
   deduplicationCooldowns: DEFAULT_COOLDOWNS,
   defaultCooldown: 1800,
+  calibrationDays: 3,
 };
 
 function resolveConfig(raw: Record<string, unknown> | undefined): PluginConfig {
@@ -50,6 +54,7 @@ function resolveConfig(raw: Record<string, unknown> | undefined): PluginConfig {
         : {}),
     },
     defaultCooldown: typeof cfg.defaultCooldown === "number" && cfg.defaultCooldown > 0 ? cfg.defaultCooldown : 1800,
+    calibrationDays: typeof cfg.calibrationDays === "number" && cfg.calibrationDays > 0 ? cfg.calibrationDays : 3,
   };
 }
 
@@ -62,6 +67,27 @@ export default {
     const stateDir = api.runtime.state.resolveStateDir();
 
     api.logger.info(`betterclaw plugin loaded (model=${config.triageModel}, budget=${config.pushBudgetPerDay})`);
+
+    // Calibration state
+    let calibrationStartedAt: number | null = null;
+    let pingReceived = false;
+
+    const calibrationFile = path.join(stateDir, "calibration.json");
+    (async () => {
+      try {
+        const raw = await fs.readFile(calibrationFile, "utf8");
+        const parsed = JSON.parse(raw);
+        calibrationStartedAt = parsed.startedAt ?? null;
+      } catch {
+        // No calibration file yet — will be created on first premium ping
+      }
+    })();
+
+    function isCalibrating(): boolean {
+      if (!calibrationStartedAt) return true;
+      const elapsed = Date.now() / 1000 - calibrationStartedAt;
+      return elapsed < config.calibrationDays * 86400;
+    }
 
     // Context manager (load synchronously — file read deferred to first access)
     const ctxManager = new ContextManager(stateDir);
@@ -132,6 +158,20 @@ export default {
       }
 
       ctxManager.setRuntimeState({ tier, smartMode });
+
+      pingReceived = true;
+
+      // Initialize calibration on first premium ping
+      if ((tier === "premium" || tier === "premium+") && calibrationStartedAt === null) {
+        const existingProfile = await loadTriageProfile(stateDir);
+        if (existingProfile?.computedAt) {
+          calibrationStartedAt = existingProfile.computedAt - config.calibrationDays * 86400;
+          api.logger.info("betterclaw: existing triage profile found — skipping calibration");
+        } else {
+          calibrationStartedAt = Date.now() / 1000;
+        }
+        fs.writeFile(calibrationFile, JSON.stringify({ startedAt: calibrationStartedAt }), "utf8").catch(() => {});
+      }
 
       const meta = ctxManager.get().meta;
       const effectiveBudget = ctxManager.getDeviceConfig().pushBudgetPerDay ?? config.pushBudgetPerDay;
@@ -235,6 +275,7 @@ export default {
         respond(true, {
           tier: runtime.tier,
           smartMode: runtime.smartMode,
+          calibrating: isCalibrating(),
           activity,
           trends,
           decisions,
@@ -321,7 +362,17 @@ export default {
       }
     });
 
-    // Agent tool
+    // Agent tools
+    api.registerTool(
+      createCheckTierTool(ctxManager, () => ({
+        pingReceived,
+        calibrating: isCalibrating(),
+        calibrationEndsAt: calibrationStartedAt
+          ? calibrationStartedAt + config.calibrationDays * 86400
+          : undefined,
+      })),
+      { optional: true },
+    );
     api.registerTool(createGetContextTool(ctxManager, stateDir), { optional: true });
 
     // Auto-reply command
@@ -401,8 +452,15 @@ export default {
       id: "betterclaw-engine",
       start: () => {
         patternEngine.startSchedule(config.analysisHour, async () => {
-          // Run learner after patterns (only if smartMode ON)
           if (ctxManager.getRuntimeState().smartMode) {
+            // Scan reactions first (feeds into learner)
+            try {
+              await scanPendingReactions({ reactions: reactionTracker, api, config, stateDir });
+            } catch (err) {
+              api.logger.error(`betterclaw: reaction scan failed: ${err}`);
+            }
+
+            // Then run learner
             try {
               await runLearner({
                 stateDir,
