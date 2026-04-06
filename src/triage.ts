@@ -11,6 +11,7 @@ export function buildTriagePrompt(
   event: DeviceEvent,
   context: ContextManager,
   profile: TriageProfile | null,
+  budget?: { budgetUsed: number; budgetTotal: number },
 ): string {
   const ctx = context.get();
   const battery = ctx.device.battery;
@@ -33,12 +34,16 @@ export function buildTriagePrompt(
     .filter(Boolean)
     .join("\n");
 
+  const budgetSection = budget
+    ? `## Push Budget\n${budget.budgetUsed} of ${budget.budgetTotal} pushes used today — be selective.`
+    : "";
+
   return `You are an event triage system for a personal assistant. Decide whether this device event should be pushed as a notification to the user.
 
 ${profileSection}
 
 ${contextSection}
-
+${budgetSection ? `\n${budgetSection}` : ""}
 ## Event
 - Subscription: ${event.subscriptionId}
 - Source: ${event.source}
@@ -60,7 +65,7 @@ export function parseTriageResponse(text: string): TriageResult {
       priority: ["low", "normal", "high"].includes(parsed.priority) ? parsed.priority : undefined,
     };
   } catch {
-    return { push: true, reason: "failed to parse triage response" };
+    return { push: false, reason: "failed to parse triage response — defaulting to drop" };
   }
 }
 
@@ -68,15 +73,19 @@ export async function triageEvent(
   event: DeviceEvent,
   context: ContextManager,
   profile: TriageProfile | null,
-  config: { triageModel: string; triageApiBase?: string },
+  config: { triageModel: string; triageApiBase?: string; budgetUsed?: number; budgetTotal?: number },
   resolveApiKey: () => Promise<string | undefined>,
 ): Promise<TriageResult> {
-  const prompt = buildTriagePrompt(event, context, profile);
+  const prompt = buildTriagePrompt(event, context, profile,
+    config.budgetUsed != null && config.budgetTotal != null
+      ? { budgetUsed: config.budgetUsed, budgetTotal: config.budgetTotal }
+      : undefined
+  );
 
   try {
     const apiKey = await resolveApiKey();
     if (!apiKey) {
-      return { push: true, reason: "no API key for triage — defaulting to push" };
+      return { push: false, reason: "no API key for triage — defaulting to drop" };
     }
 
     const baseUrl = config.triageApiBase ?? "https://api.openai.com/v1";
@@ -116,7 +125,7 @@ export async function triageEvent(
     });
 
     if (!response.ok) {
-      return { push: true, reason: `triage API error: ${response.status}` };
+      return { push: false, reason: `triage API error: ${response.status} — defaulting to drop` };
     }
 
     const data = (await response.json()) as {
@@ -124,11 +133,11 @@ export async function triageEvent(
     };
     const content = data.choices?.[0]?.message?.content;
     if (!content) {
-      return { push: true, reason: "empty triage response" };
+      return { push: false, reason: "empty triage response — defaulting to drop" };
     }
 
     return parseTriageResponse(content);
   } catch (err) {
-    return { push: true, reason: `triage call failed: ${err}` };
+    return { push: false, reason: `triage call failed: ${err} — defaulting to drop` };
   }
 }
