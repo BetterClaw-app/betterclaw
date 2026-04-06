@@ -24,20 +24,11 @@ The plugin differentiates between **free** and **premium** tiers:
 - **Free** — passive context store. The agent can pull device snapshots via `get_context`, but no events are pushed proactively.
 - **Premium** — full smart mode pipeline with rules-based filtering, LLM triage, engagement tracking, and a daily learner that adapts to your preferences.
 
-```
-  BetterClaw iOS App          This Plugin (on gateway)              Agent
- ──────────────────          ────────────────────────             ────────
-                                       |
-  battery ──────>  +-----------------------------------------+
-  location ─────>  |  Tier Gate        |  Context Store       |
-  health ───────>  |  Rules Engine     |  Pattern Engine      |
-  geofence ─────>  |  LLM Triage       |  Reaction Scanner    | ──>  check_tier
-                   |  Daily Learner    |  Calibration         |      get_context
-                   +-----------------------------------------+      node commands
-                                       |
-                             filtered push events
-                           (premium + smart mode ON)
-```
+<p align="center">
+  <picture>
+    <img src=".github/architecture.svg" alt="BetterClaw Plugin Architecture" width="500" />
+  </picture>
+</p>
 
 ## Features
 
@@ -109,13 +100,11 @@ All config keys are optional — defaults are shown above.
 
 Every device event from the BetterClaw app goes through the plugin:
 
-1. **Context Update** — Device context store is always updated with the latest sensor data (all tiers).
-2. **Tier Gate** — Free-tier events are logged as `free_stored` and processing stops. Premium continues.
-3. **JWT Verification** — Cryptographic entitlement check (security boundary, not bypassable via tier spoofing).
-4. **Smart Mode Check** — If smart mode is OFF, the event is stored. If ON, continues to filtering.
-5. **Rules Engine** — Dedup, cooldown timers, daily budget. Critical events (geofence, low battery) always push.
-6. **LLM Triage** — Ambiguous events get a cheap LLM call with the triage profile and remaining budget context.
-7. **Agent Push** — Events that pass are injected into the agent session. A reaction entry is recorded for later engagement scanning.
+<p align="center">
+  <picture>
+    <img src=".github/pipeline.svg" alt="Event Pipeline" width="350" />
+  </picture>
+</p>
 
 ### Background Services
 
