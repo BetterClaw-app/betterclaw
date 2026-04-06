@@ -371,9 +371,8 @@ export default {
           ? calibrationStartedAt + config.calibrationDays * 86400
           : undefined,
       })),
-      { optional: true },
     );
-    api.registerTool(createGetContextTool(ctxManager, stateDir), { optional: true });
+    api.registerTool(createGetContextTool(ctxManager, stateDir));
 
     // Auto-reply command
     api.registerCommand({
