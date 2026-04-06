@@ -17,9 +17,6 @@ export interface ClassificationResult {
 export interface ScanDeps {
   api: OpenClawPluginApi;
   reactions: ReactionTracker;
-  classificationModel: string;
-  classificationApiBase?: string;
-  getApiKey: () => Promise<string | undefined>;
 }
 
 // --- Helpers ---
@@ -151,7 +148,7 @@ export async function scanPendingReactions(deps: ScanDeps): Promise<void> {
       sessionKey: "main",
       limit: 200,
     });
-    messages = fetched;
+    messages = fetched as typeof messages;
   } catch (err) {
     api.logger.error(
       `reaction-scanner: failed to fetch session messages: ${err instanceof Error ? err.message : String(err)}`,
@@ -198,7 +195,7 @@ export async function scanPendingReactions(deps: ScanDeps): Promise<void> {
           limit: 5,
         });
 
-        const lastAssistant = classifyMessages.filter((m: any) => m.role === "assistant").pop();
+        const lastAssistant = (classifyMessages as any[]).filter((m) => m.role === "assistant").pop();
         if (lastAssistant) {
           const content = extractText(lastAssistant.content);
           if (content) {

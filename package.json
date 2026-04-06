@@ -9,12 +9,17 @@
   },
   "type": "module",
   "openclaw": {
-    "extensions": ["./src/index.ts"]
+    "extensions": [
+      "./src/index.ts"
+    ]
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.0"
   },
   "devDependencies": {
+    "@types/node": "^25.5.2",
+    "openclaw": "^2026.4.5",
+    "typescript": "^6.0.2",
     "vitest": "^3.0.0"
   }
 }

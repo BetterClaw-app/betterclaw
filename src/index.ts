@@ -450,7 +450,7 @@ export default {
           if (ctxManager.getRuntimeState().smartMode) {
             // Scan reactions first (feeds into learner)
             try {
-              await scanPendingReactions({ reactions: reactionTracker, api, config, stateDir });
+              await scanPendingReactions({ reactions: reactionTracker, api });
             } catch (err) {
               api.logger.error(`betterclaw: reaction scan failed: ${err}`);
             }

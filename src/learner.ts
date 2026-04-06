@@ -165,7 +165,7 @@ export async function runLearner(deps: RunLearnerDeps): Promise<void> {
     });
 
     // 11. Parse last assistant message — handle both string and content-block formats
-    const lastAssistant = messages.filter((m: any) => m.role === "assistant").pop();
+    const lastAssistant = (messages as any[]).filter((m) => m.role === "assistant").pop();
     if (lastAssistant) {
       const content = typeof lastAssistant.content === "string"
         ? lastAssistant.content

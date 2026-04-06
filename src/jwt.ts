@@ -54,7 +54,7 @@ export async function verifyJwt(
     const valid = await crypto.subtle.verify(
       { name: "ECDSA", hash: "SHA-256" },
       publicKey,
-      signature,
+      signature as Uint8Array<ArrayBuffer>,
       signingInput
     );
     if (!valid) return null;
