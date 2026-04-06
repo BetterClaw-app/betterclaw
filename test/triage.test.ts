@@ -76,9 +76,27 @@ describe("triage", () => {
       expect(result).toEqual({ push: false, reason: "routine", priority: undefined });
     });
 
-    it("defaults to push on malformed response", () => {
+    it("defaults to drop on malformed response", () => {
       const result = parseTriageResponse("not json at all");
-      expect(result).toEqual({ push: true, reason: "failed to parse triage response", priority: undefined });
+      expect(result).toEqual({ push: false, reason: "failed to parse triage response — defaulting to drop", priority: undefined });
     });
+  });
+
+  it("includes budget context in triage prompt", () => {
+    const ctx = new ContextManager("/tmp/test-triage-budget");
+    const event: DeviceEvent = {
+      subscriptionId: "test.event",
+      source: "test",
+      data: { value: 1 },
+      firedAt: Date.now() / 1000,
+    };
+    const prompt = buildTriagePrompt(event, ctx, null, { budgetUsed: 7, budgetTotal: 10 });
+    expect(prompt).toContain("7 of 10 pushes used today");
+  });
+
+  it("fails closed on parse error", () => {
+    const result = parseTriageResponse("not valid json at all");
+    expect(result.push).toBe(false);
+    expect(result.reason).toContain("failed to parse");
   });
 });
