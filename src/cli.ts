@@ -24,7 +24,14 @@ export const BETTERCLAW_COMMANDS = [
   "system.notify",
 ].sort();
 
+export const BETTERCLAW_TOOLS = ["check_tier", "get_context"];
+
 export function mergeAllowCommands(existing: string[], toAdd: string[]): string[] {
   const set = new Set([...existing, ...toAdd]);
   return [...set].sort();
+}
+
+export function mergeAlsoAllow(existing: string[], toAdd: string[]): string[] {
+  const set = new Set([...existing, ...toAdd]);
+  return [...set];
 }
