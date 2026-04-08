@@ -1,6 +1,8 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { DeviceConfig, DeviceContext, DeviceEvent, Patterns, RuntimeState } from "./types.js";
+import type { DeviceConfig, DeviceContext, DeviceEvent, Patterns, PluginModuleLogger, RuntimeState } from "./types.js";
+
+const noopLogger: PluginModuleLogger = { info: () => {}, warn: () => {}, error: () => {} };
 
 const CONTEXT_FILE = "context.json";
 const PATTERNS_FILE = "patterns.json";
@@ -12,11 +14,13 @@ export class ContextManager {
   private runtimeState: RuntimeState = { tier: null, smartMode: false };
   private timestamps: Record<string, number> = {};
   private deviceConfig: DeviceConfig = {};
+  private logger: PluginModuleLogger;
 
-  constructor(stateDir: string) {
+  constructor(stateDir: string, logger?: PluginModuleLogger) {
     this.contextPath = path.join(stateDir, CONTEXT_FILE);
     this.patternsPath = path.join(stateDir, PATTERNS_FILE);
     this.context = ContextManager.empty();
+    this.logger = logger ?? noopLogger;
   }
 
   static empty(): DeviceContext {
@@ -81,12 +85,18 @@ export class ContextManager {
     };
   }
 
-  async save(): Promise<void> {
-    await fs.mkdir(path.dirname(this.contextPath), { recursive: true });
-    const data = { ...this.context, _timestamps: this.timestamps, _tier: this.runtimeState.tier };
-    await fs.writeFile(this.contextPath, JSON.stringify(data, null, 2) + "\n", "utf8");
-    const configPath = path.join(path.dirname(this.contextPath), "device-config.json");
-    await fs.writeFile(configPath, JSON.stringify(this.deviceConfig, null, 2) + "\n", "utf8");
+  async save(): Promise<boolean> {
+    try {
+      await fs.mkdir(path.dirname(this.contextPath), { recursive: true });
+      const data = { ...this.context, _timestamps: this.timestamps, _tier: this.runtimeState.tier };
+      await fs.writeFile(this.contextPath, JSON.stringify(data, null, 2) + "\n", "utf8");
+      const configPath = path.join(path.dirname(this.contextPath), "device-config.json");
+      await fs.writeFile(configPath, JSON.stringify(this.deviceConfig, null, 2) + "\n", "utf8");
+      return true;
+    } catch (err) {
+      this.logger.error(`context save failed: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
   }
 
   updateFromEvent(event: DeviceEvent): void {
@@ -275,8 +285,13 @@ export class ContextManager {
     }
   }
 
-  async writePatterns(patterns: Patterns): Promise<void> {
-    await fs.mkdir(path.dirname(this.patternsPath), { recursive: true });
-    await fs.writeFile(this.patternsPath, JSON.stringify(patterns, null, 2) + "\n", "utf8");
+  async writePatterns(patterns: Patterns): Promise<boolean> {
+    try {
+      await fs.writeFile(this.patternsPath, JSON.stringify(patterns, null, 2) + "\n", "utf8");
+      return true;
+    } catch (err) {
+      this.logger.error(`patterns write failed: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
   }
 }
