@@ -2,6 +2,7 @@ import type { DeviceContext, DeviceEvent, FilterDecision } from "./types.js";
 
 export class RulesEngine {
   private lastFired: Map<string, number> = new Map();
+  private lastPushedBatteryLevel: number | undefined;
   private pushBudget: number;
   private cooldowns: Record<string, number>;
   private defaultCooldown: number;
@@ -41,11 +42,11 @@ export class RulesEngine {
     // Battery low — check if level changed since last push
     if (event.subscriptionId === "default.battery-low") {
       const currentLevel = event.data.level;
-      const lastLevel = context.device.battery?.level;
+      const lastPushedLevel = this.lastPushedBatteryLevel;
       if (
-        lastLevel !== undefined &&
+        lastPushedLevel !== undefined &&
         currentLevel !== undefined &&
-        Math.abs(currentLevel - lastLevel) < 0.02
+        Math.abs(currentLevel - lastPushedLevel) < 0.02
       ) {
         return { action: "drop", reason: "battery-low: level unchanged since last push" };
       }
@@ -72,16 +73,22 @@ export class RulesEngine {
     return { action: "ambiguous", reason: "no rule matched — forward to LLM judgment" };
   }
 
-  recordFired(subscriptionId: string, firedAt: number): void {
+  recordFired(subscriptionId: string, firedAt: number, data?: Record<string, number>): void {
     this.lastFired.set(subscriptionId, firedAt);
+    if (subscriptionId === "default.battery-low" && data?.level != null) {
+      this.lastPushedBatteryLevel = data.level;
+    }
   }
 
   /** Restore cooldown state (call on load) */
-  restoreCooldowns(entries: Array<{ subscriptionId: string; firedAt: number }>): void {
-    for (const { subscriptionId, firedAt } of entries) {
+  restoreCooldowns(entries: Array<{ subscriptionId: string; firedAt: number; data?: Record<string, number> }>): void {
+    for (const { subscriptionId, firedAt, data } of entries) {
       const existing = this.lastFired.get(subscriptionId);
       if (!existing || firedAt > existing) {
         this.lastFired.set(subscriptionId, firedAt);
+      }
+      if (subscriptionId === "default.battery-low" && data?.level != null) {
+        this.lastPushedBatteryLevel = data.level;
       }
     }
   }
