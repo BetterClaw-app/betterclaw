@@ -1,22 +1,26 @@
 import type { ContextManager } from "./context.js";
 import type { EventLog } from "./events.js";
-import type { EventLogEntry, Patterns } from "./types.js";
+import type { EventLogEntry, Patterns, PluginModuleLogger } from "./types.js";
+
+const noopLogger: PluginModuleLogger = { info: () => {}, warn: () => {}, error: () => {} };
 
 export class PatternEngine {
   private context: ContextManager;
   private events: EventLog;
   private windowDays: number;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private logger: PluginModuleLogger;
 
-  constructor(context: ContextManager, events: EventLog, windowDays: number) {
+  constructor(context: ContextManager, events: EventLog, windowDays: number, logger?: PluginModuleLogger) {
     this.context = context;
     this.events = events;
     this.windowDays = windowDays;
+    this.logger = logger ?? noopLogger;
   }
 
   startSchedule(analysisHour: number, dailyCallback?: () => Promise<void>): void {
     // Run initial compute on startup
-    void this.compute().catch(() => {});
+    void this.compute().catch((err) => { this.logger.warn(`initial pattern compute failed: ${err instanceof Error ? err.message : String(err)}`); });
 
     this.scheduleNext(analysisHour, dailyCallback);
   }
@@ -34,8 +38,8 @@ export class PatternEngine {
       try {
         await this.compute();
         if (dailyCallback) await dailyCallback();
-      } catch {
-        // ignore errors, will retry next day
+      } catch (err) {
+        this.logger.warn(`scheduled pattern compute failed: ${err instanceof Error ? err.message : String(err)}`);
       }
       this.scheduleNext(analysisHour, dailyCallback);
     }, msUntil);
