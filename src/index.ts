@@ -89,12 +89,12 @@ export default {
     }
 
     // Context manager (load synchronously — file read deferred to first access)
-    const ctxManager = new ContextManager(stateDir);
+    const ctxManager = new ContextManager(stateDir, api.logger);
 
     // Event log, rules engine, reaction tracker
-    const eventLog = new EventLog(stateDir);
+    const eventLog = new EventLog(stateDir, api.logger);
     const rules = new RulesEngine(config.pushBudgetPerDay, config.deduplicationCooldowns, config.defaultCooldown);
-    const reactionTracker = new ReactionTracker(stateDir);
+    const reactionTracker = new ReactionTracker(stateDir, api.logger);
 
     // Pipeline dependencies
     const pipelineDeps: PipelineDeps = {
@@ -130,7 +130,7 @@ export default {
           rules.restoreCooldowns(
             recentEvents
               .filter((e) => e.decision === "push")
-              .map((e) => ({ subscriptionId: e.event.subscriptionId, firedAt: e.event.firedAt })),
+              .map((e) => ({ subscriptionId: e.event.subscriptionId, firedAt: e.event.firedAt, data: e.event.data })),
           );
           api.logger.info("betterclaw: async init complete");
         } catch (err) {
@@ -432,6 +432,7 @@ export default {
         // Sequential processing — prevents budget races
         eventQueue = eventQueue.then(() => processEvent(pipelineDeps, event)).catch((err) => {
           api.logger.error(`event processing failed: ${err}`);
+          eventLog.append({ event, decision: "error", reason: `processing error: ${err instanceof Error ? err.message : String(err)}`, timestamp: Date.now() / 1000 });
         });
       } catch (err) {
         api.logger.error(`betterclaw.event handler error: ${err instanceof Error ? err.message : String(err)}`);
@@ -440,7 +441,7 @@ export default {
     });
 
     // Pattern engine
-    const patternEngine = new PatternEngine(ctxManager, eventLog, config.patternWindowDays);
+    const patternEngine = new PatternEngine(ctxManager, eventLog, config.patternWindowDays, api.logger);
 
     // Background service
     api.registerService({

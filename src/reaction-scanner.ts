@@ -224,12 +224,6 @@ export async function scanPendingReactions(deps: ScanDeps): Promise<void> {
     }
   }
 
-  // Persist updated reactions
-  try {
-    await reactions.save();
-  } catch (err) {
-    api.logger.error(
-      `reaction-scanner: failed to save reactions: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  // Persist updated reactions (save is self-catching)
+  await reactions.save();
 }
