@@ -5,6 +5,7 @@ import type { EventLog } from "./events.js";
 import type { ContextManager } from "./context.js";
 import type { ReactionTracker } from "./reactions.js";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { dlog } from "./diagnostic-logger.js";
 
 export async function readMemorySummary(workspaceDir: string, date: Date): Promise<string | null> {
   const y = date.getFullYear();
@@ -140,6 +141,13 @@ export async function runLearner(deps: RunLearnerDeps): Promise<void> {
   const patterns = await context.readPatterns();
   const patternsJson = JSON.stringify(patterns ?? {});
 
+  dlog.info("plugin.learner", "learner.started", "daily learner run started", {
+    eventsCount: recentEvents.length,
+    reactionsCount: recentReactions.length,
+    hasMemory: memorySummary !== null,
+    hasPreviousProfile: previousProfile !== null,
+  });
+
   // 6. Build prompt (include JSON-only instruction since extraSystemPrompt is not a valid SDK param)
   const prompt = buildLearnerPrompt({
     memorySummary,
@@ -154,6 +162,7 @@ export async function runLearner(deps: RunLearnerDeps): Promise<void> {
 
   // 8. Run subagent with try/finally for session cleanup
   let newProfile: TriageProfile | null = null;
+  let content: string | null = null;
   try {
     const { runId } = await api.runtime.subagent.run({
       sessionKey: "betterclaw-learn",
@@ -174,7 +183,7 @@ export async function runLearner(deps: RunLearnerDeps): Promise<void> {
     // 11. Parse last assistant message — handle both string and content-block formats
     const lastAssistant = (messages as any[]).filter((m) => m.role === "assistant").pop();
     if (lastAssistant) {
-      const content = typeof lastAssistant.content === "string"
+      content = typeof lastAssistant.content === "string"
         ? lastAssistant.content
         : Array.isArray(lastAssistant.content)
           ? lastAssistant.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("")
@@ -189,8 +198,17 @@ export async function runLearner(deps: RunLearnerDeps): Promise<void> {
   }
 
   // 13. Save if valid
+  if (!newProfile && content) {
+    dlog.warn("plugin.learner", "parse.failed", "failed to parse triage profile from LLM response", {
+      rawContent: content.slice(0, 200),
+    });
+  }
   if (newProfile) {
     await saveTriageProfile(stateDir, newProfile, api.logger);
+    dlog.info("plugin.learner", "profile.updated", "triage profile updated", {
+      summary: newProfile.summary,
+      interruptionTolerance: newProfile.interruptionTolerance,
+    });
   }
 
   // 14. Rotate old reactions
