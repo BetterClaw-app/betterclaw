@@ -36,6 +36,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   const entitlementError = requireEntitlement("premium");
   if (entitlementError) {
     api.logger.info(`betterclaw: event blocked (no premium entitlement)`);
+    await events.append({ event, decision: "blocked", reason: "no premium entitlement", timestamp: Date.now() / 1000 });
     return;
   }
 
@@ -77,7 +78,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
       const pushed = await pushToAgent(deps, event, `triage: ${triageResult.reason}`, message);
 
       if (pushed) {
-        rules.recordFired(event.subscriptionId, event.firedAt);
+        rules.recordFired(event.subscriptionId, event.firedAt, event.data);
         context.recordPush();
         deps.reactions.recordPush({
           subscriptionId: event.subscriptionId,
@@ -112,7 +113,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
     const pushed = await pushToAgent(deps, event, decision.reason, message);
 
     if (pushed) {
-      rules.recordFired(event.subscriptionId, event.firedAt);
+      rules.recordFired(event.subscriptionId, event.firedAt, event.data);
       context.recordPush();
       deps.reactions.recordPush({
         subscriptionId: event.subscriptionId,
