@@ -1,5 +1,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginConfig, DeviceConfig } from "./types.js";
+import { errorMessage } from "./types.js";
+import { initDiagnosticLogger } from "./diagnostic-logger.js";
 import { ContextManager } from "./context.js";
 import { createGetContextTool } from "./tools/get-context.js";
 import { EventLog } from "./events.js";
@@ -65,8 +67,9 @@ export default {
   register(api: OpenClawPluginApi) {
     const config = resolveConfig(api.pluginConfig as Record<string, unknown> | undefined);
     const stateDir = api.runtime.state.resolveStateDir();
+    const diagnosticLogger = initDiagnosticLogger(path.join(stateDir, "logs"), api.logger);
 
-    api.logger.info(`betterclaw plugin loaded (model=${config.triageModel}, budget=${config.pushBudgetPerDay})`);
+    diagnosticLogger.info("plugin.service", "loaded", "plugin loaded", { model: config.triageModel, budget: config.pushBudgetPerDay });
 
     // Calibration state
     let calibrationStartedAt: number | null = null;
@@ -89,12 +92,12 @@ export default {
     }
 
     // Context manager (load synchronously — file read deferred to first access)
-    const ctxManager = new ContextManager(stateDir, api.logger);
+    const ctxManager = new ContextManager(stateDir, diagnosticLogger.scoped("plugin.context"));
 
     // Event log, rules engine, reaction tracker
-    const eventLog = new EventLog(stateDir, api.logger);
+    const eventLog = new EventLog(stateDir, diagnosticLogger.scoped("plugin.events"));
     const rules = new RulesEngine(config.pushBudgetPerDay, config.deduplicationCooldowns, config.defaultCooldown);
-    const reactionTracker = new ReactionTracker(stateDir, api.logger);
+    const reactionTracker = new ReactionTracker(stateDir, diagnosticLogger.scoped("plugin.reactions"));
 
     // Pipeline dependencies
     const pipelineDeps: PipelineDeps = {
@@ -112,17 +115,22 @@ export default {
     // Track whether async init has completed
     let initialized = false;
     let learnerRunning = false;
+    const initStart = Date.now();
     const initPromise = (async () => {
       try {
         await ctxManager.load();
         initialized = true;
+        diagnosticLogger.info("plugin.service", "init.phase", "context loaded", { phase: "context", success: true });
       } catch (err) {
-        api.logger.error(`betterclaw: context init failed: ${err instanceof Error ? err.message : String(err)}`);
+        const msg = errorMessage(err);
+        diagnosticLogger.error("plugin.service", "init.phase", "context init failed: " + msg, { phase: "context", success: false, error: msg });
       }
       try {
         await reactionTracker.load();
+        diagnosticLogger.info("plugin.service", "init.phase", "reactions loaded", { phase: "reactions", success: true });
       } catch (err) {
-        api.logger.warn(`betterclaw: reaction tracker load failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+        const msg = errorMessage(err);
+        diagnosticLogger.warn("plugin.service", "init.phase", "reaction tracker load failed: " + msg, { phase: "reactions", success: false, error: msg });
       }
       if (initialized) {
         try {
@@ -132,9 +140,10 @@ export default {
               .filter((e) => e.decision === "push")
               .map((e) => ({ subscriptionId: e.event.subscriptionId, firedAt: e.event.firedAt, data: e.event.data })),
           );
-          api.logger.info("betterclaw: async init complete");
+          diagnosticLogger.info("plugin.service", "init.complete", "async init complete", { durationMs: Date.now() - initStart });
         } catch (err) {
-          api.logger.error(`betterclaw: cooldown restore failed: ${err instanceof Error ? err.message : String(err)}`);
+          const msg = errorMessage(err);
+          diagnosticLogger.error("plugin.service", "init.phase", "cooldown restore failed: " + msg, { phase: "cooldowns", success: false, error: msg });
         }
       }
     })();
@@ -150,10 +159,12 @@ export default {
       if (jwt) {
         const payload = await storeJwt(jwt);
         if (payload) {
-          api.logger.info(`betterclaw: JWT verified, entitlements=${payload.ent.join(",")}`);
+          diagnosticLogger.info("plugin.rpc", "ping.received", "JWT verified", { tier, smartMode, entitlements: payload.ent });
         } else {
-          api.logger.warn("betterclaw: JWT verification failed");
+          diagnosticLogger.warn("plugin.rpc", "ping.received", "JWT verification failed", { tier, smartMode });
         }
+      } else {
+        diagnosticLogger.info("plugin.rpc", "ping.received", "device ping", { tier, smartMode, nodeConnected: context.hasConnectedMobileNode() });
       }
 
       ctxManager.setRuntimeState({ tier, smartMode });
@@ -163,12 +174,14 @@ export default {
         const existingProfile = await loadTriageProfile(stateDir);
         if (existingProfile?.computedAt) {
           calibrationStartedAt = existingProfile.computedAt - config.calibrationDays * 86400;
-          api.logger.info("betterclaw: existing triage profile found — skipping calibration");
+          diagnosticLogger.info("plugin.calibration", "calibration.skipped", "existing triage profile found");
         } else {
           calibrationStartedAt = Date.now() / 1000;
+          diagnosticLogger.info("plugin.calibration", "calibration.started", "calibration period started");
         }
         fs.writeFile(calibrationFile, JSON.stringify({ startedAt: calibrationStartedAt }), "utf8").catch((err) => {
-          api.logger.warn(`betterclaw: calibration file write failed: ${err instanceof Error ? err.message : String(err)}`);
+          const msg = errorMessage(err);
+          diagnosticLogger.warn("plugin.calibration", "calibration.error", "calibration file write failed: " + msg, { error: msg });
         });
       }
 
@@ -201,9 +214,11 @@ export default {
 
         ctxManager.setDeviceConfig(deviceConfig);
         await ctxManager.save();
+        diagnosticLogger.info("plugin.rpc", "config.applied", "config updated", { changedFields: Object.keys(deviceConfig) });
         respond(true, { applied: true });
       } catch (err) {
-        api.logger.error(`betterclaw.config error: ${err instanceof Error ? err.message : String(err)}`);
+        const msg = errorMessage(err);
+        diagnosticLogger.error("plugin.rpc", "config.error", "config RPC failed: " + msg, { error: msg });
         respond(false, undefined, { code: "INTERNAL_ERROR", message: "config update failed" });
       }
     });
@@ -271,6 +286,7 @@ export default {
             }
           : null;
 
+        diagnosticLogger.info("plugin.rpc", "context.served", "context served", { tier: runtime.tier });
         respond(true, {
           tier: runtime.tier,
           smartMode: runtime.smartMode,
@@ -284,7 +300,8 @@ export default {
           triageProfile: profile ?? null,
         });
       } catch (err) {
-        api.logger.error(`betterclaw.context error: ${err instanceof Error ? err.message : String(err)}`);
+        const msg = errorMessage(err);
+        diagnosticLogger.error("plugin.rpc", "context.error", "context RPC failed: " + msg, { error: msg });
         respond(false, undefined, { code: "INTERNAL_ERROR", message: "context fetch failed" });
       }
     });
@@ -292,6 +309,7 @@ export default {
     // Learn RPC — trigger on-demand triage profile learning
     api.registerGatewayMethod("betterclaw.learn", async ({ respond }) => {
       try {
+        diagnosticLogger.info("plugin.rpc", "learn.triggered", "learn RPC triggered");
         if (!initialized) await initPromise;
 
         if (learnerRunning) {
@@ -331,8 +349,9 @@ export default {
         }
       } catch (err) {
         learnerRunning = false;
-        api.logger.error(`betterclaw.learn error: ${err instanceof Error ? err.message : String(err)}`);
-        respond(true, { ok: false, error: err instanceof Error ? err.message : String(err) });
+        const msg = errorMessage(err);
+        diagnosticLogger.error("plugin.rpc", "learn.error", "learn RPC failed: " + msg, { error: msg });
+        respond(true, { ok: false, error: msg });
       }
     });
 
@@ -354,10 +373,28 @@ export default {
 
         ctxManager.applySnapshot(snapshot);
         await ctxManager.save();
+        diagnosticLogger.info("plugin.rpc", "snapshot.applied", "snapshot applied", { fieldCount: Object.keys(snapshot).length });
         respond(true, { applied: true });
       } catch (err) {
-        api.logger.error(`betterclaw.snapshot error: ${err instanceof Error ? err.message : String(err)}`);
+        const msg = errorMessage(err);
+        diagnosticLogger.error("plugin.rpc", "snapshot.error", "snapshot RPC failed: " + msg, { error: msg });
         respond(false, undefined, { code: "INTERNAL_ERROR", message: "snapshot apply failed" });
+      }
+    });
+
+    // Diagnostic logs RPC — read structured log entries
+    api.registerGatewayMethod("betterclaw.logs", async ({ params, respond }) => {
+      try {
+        const p = (params ?? {}) as Record<string, unknown>;
+        const result = await diagnosticLogger.readLogs({
+          since: typeof p.since === "number" ? p.since : undefined,
+          limit: typeof p.limit === "number" ? p.limit : undefined,
+          level: typeof p.level === "string" ? p.level : undefined,
+          source: typeof p.source === "string" ? p.source : undefined,
+        });
+        respond(true, result);
+      } catch (err) {
+        respond(false, undefined, { code: "LOGS_READ_FAILED", message: errorMessage(err) });
       }
     });
 
@@ -433,33 +470,37 @@ export default {
 
         // Sequential processing — prevents budget races
         eventQueue = eventQueue.then(() => processEvent(pipelineDeps, event)).catch((err) => {
-          api.logger.error(`betterclaw: event processing failed: ${err instanceof Error ? err.message : String(err)}`);
-          eventLog.append({ event, decision: "error", reason: `processing error: ${err instanceof Error ? err.message : String(err)}`, timestamp: Date.now() / 1000 });
+          const msg = errorMessage(err);
+          diagnosticLogger.error("plugin.pipeline", "event.error", "event processing failed: " + msg, { error: msg });
+          eventLog.append({ event, decision: "error", reason: `processing error: ${msg}`, timestamp: Date.now() / 1000 });
         });
       } catch (err) {
-        api.logger.error(`betterclaw.event handler error: ${err instanceof Error ? err.message : String(err)}`);
+        const msg = errorMessage(err);
+        diagnosticLogger.error("plugin.rpc", "event.error", "event handler error: " + msg, { error: msg });
         respond(false, undefined, { code: "INTERNAL_ERROR", message: "event processing failed" });
       }
     });
 
     // Pattern engine
-    const patternEngine = new PatternEngine(ctxManager, eventLog, config.patternWindowDays, api.logger);
+    const patternEngine = new PatternEngine(ctxManager, eventLog, config.patternWindowDays, diagnosticLogger.scoped("plugin.patterns"));
 
     // Background service
     api.registerService({
       id: "betterclaw-engine",
       start: () => {
         patternEngine.startSchedule(config.analysisHour, async () => {
+          await diagnosticLogger.rotate();
+
           if (ctxManager.getRuntimeState().smartMode) {
-            // Scan reactions first (feeds into learner)
             try {
               await scanPendingReactions({ reactions: reactionTracker, api });
             } catch (err) {
-              api.logger.error(`betterclaw: reaction scan failed: ${err instanceof Error ? err.message : String(err)}`);
+              const msg = errorMessage(err);
+              diagnosticLogger.error("plugin.reactions", "scan.failed", "reaction scan failed: " + msg, { error: msg });
             }
 
-            // Then run learner
             try {
+              const learnerStart = Date.now();
               await runLearner({
                 stateDir,
                 workspaceDir: path.join(os.homedir(), ".openclaw", "workspace"),
@@ -468,17 +509,18 @@ export default {
                 reactions: reactionTracker,
                 api,
               });
-              api.logger.info("betterclaw: daily learner completed");
+              diagnosticLogger.info("plugin.learner", "learner.completed", "daily learner completed", { durationMs: Date.now() - learnerStart });
             } catch (err) {
-              api.logger.error(`betterclaw: daily learner failed: ${err instanceof Error ? err.message : String(err)}`);
+              const msg = errorMessage(err);
+              diagnosticLogger.error("plugin.learner", "learner.failed", "daily learner failed: " + msg, { error: msg });
             }
           }
         });
-        api.logger.info("betterclaw: background services started");
+        diagnosticLogger.info("plugin.service", "started", "background services started", { analysisHour: config.analysisHour });
       },
       stop: () => {
         patternEngine.stopSchedule();
-        api.logger.info("betterclaw: background services stopped");
+        diagnosticLogger.info("plugin.service", "stopped", "background services stopped");
       },
     });
 
