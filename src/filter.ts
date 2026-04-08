@@ -1,4 +1,5 @@
 import type { DeviceContext, DeviceEvent, FilterDecision } from "./types.js";
+import { dlog } from "./diagnostic-logger.js";
 
 export class RulesEngine {
   private lastFired: Map<string, number> = new Map();
@@ -47,11 +48,17 @@ export class RulesEngine {
     if (event.subscriptionId === "default.battery-low") {
       const currentLevel = event.data.level;
       const lastPushedLevel = this.lastPushedBatteryLevel;
-      if (
+      const deduplicated =
         lastPushedLevel !== undefined &&
         currentLevel !== undefined &&
-        Math.abs(currentLevel - lastPushedLevel) < 0.02
-      ) {
+        Math.abs(currentLevel - lastPushedLevel) < 0.02;
+      dlog.debug("plugin.pipeline", "dedup.checked", "battery dedup evaluated", {
+        subscriptionId: event.subscriptionId,
+        currentLevel,
+        lastPushedLevel,
+        deduplicated,
+      });
+      if (deduplicated) {
         return { action: "drop", reason: "battery-low: level unchanged since last push" };
       }
       return { action: "push", reason: "battery low — level changed" };

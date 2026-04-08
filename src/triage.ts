@@ -1,5 +1,7 @@
 import type { DeviceEvent, TriageProfile } from "./types.js";
+import { errorMessage } from "./types.js";
 import type { ContextManager } from "./context.js";
+import { dlog } from "./diagnostic-logger.js";
 
 export interface TriageResult {
   push: boolean;
@@ -76,6 +78,11 @@ export async function triageEvent(
   config: { triageModel: string; triageApiBase?: string; budgetUsed?: number; budgetTotal?: number },
   resolveApiKey: () => Promise<string | undefined>,
 ): Promise<TriageResult> {
+  dlog.info("plugin.triage", "triage.called", "sending triage request", {
+    subscriptionId: event.subscriptionId,
+    model: config.triageModel,
+  });
+
   const prompt = buildTriagePrompt(event, context, profile,
     config.budgetUsed != null && config.budgetTotal != null
       ? { budgetUsed: config.budgetUsed, budgetTotal: config.budgetTotal }
@@ -136,8 +143,19 @@ export async function triageEvent(
       return { push: false, reason: "empty triage response — defaulting to drop" };
     }
 
-    return parseTriageResponse(content);
+    const result = parseTriageResponse(content);
+    dlog.info("plugin.triage", "triage.result", `triage decision: ${result.push ? "push" : "drop"}`, {
+      subscriptionId: event.subscriptionId,
+      decision: result.push ? "push" : "drop",
+      reason: result.reason,
+    });
+    return result;
   } catch (err) {
+    dlog.error("plugin.triage", "triage.fallback", `triage failed, falling back to drop: ${errorMessage(err)}`, {
+      subscriptionId: event.subscriptionId,
+      error: errorMessage(err),
+      fallbackAction: "drop",
+    });
     return { push: false, reason: `triage call failed: ${err} — defaulting to drop` };
   }
 }
