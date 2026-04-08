@@ -1,13 +1,17 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { ReactionEntry, ReactionStatus } from "./types.js";
+import type { PluginModuleLogger, ReactionEntry, ReactionStatus } from "./types.js";
+
+const noopLogger: PluginModuleLogger = { info: () => {}, warn: () => {}, error: () => {} };
 
 export class ReactionTracker {
   private reactions: ReactionEntry[] = [];
   private filePath: string;
+  private logger: PluginModuleLogger;
 
-  constructor(stateDir: string) {
+  constructor(stateDir: string, logger?: PluginModuleLogger) {
     this.filePath = path.join(stateDir, "push-reactions.jsonl");
+    this.logger = logger ?? noopLogger;
   }
 
   recordPush(entry: { subscriptionId: string; source: string; pushedAt: number; messageSummary: string }): void {
@@ -49,10 +53,16 @@ export class ReactionTracker {
     return this.reactions.filter((r) => r.status !== "pending" && r.pushedAt >= cutoff);
   }
 
-  async save(): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    const lines = this.reactions.map((r) => JSON.stringify(r)).join("\n");
-    await fs.writeFile(this.filePath, lines + "\n", "utf-8");
+  async save(): Promise<boolean> {
+    try {
+      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+      const lines = this.reactions.map((r) => JSON.stringify(r)).join("\n");
+      await fs.writeFile(this.filePath, lines + "\n", "utf-8");
+      return true;
+    } catch (err) {
+      this.logger.error(`reactions save failed: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
   }
 
   async load(): Promise<void> {
