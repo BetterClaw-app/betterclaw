@@ -28,6 +28,17 @@ You have two complementary tools:
 
 Both are useful. Node commands for precision, `get_context` for the big picture.
 
+### Action commands (premium only)
+
+Beyond sensors, you can perform actions on the device:
+
+- **Notifications**: `system.notify` — send a push notification to the user's device
+- **Clipboard**: `clipboard.write` — copy text to the device clipboard
+- **Shortcuts**: `shortcuts.run`, `shortcuts.install` — run or install iOS Shortcuts
+- **Geofences**: `geofence.add`, `geofence.remove`, `geofence.list` — manage location-based geofences
+- **Subscriptions**: `subscribe.add`, `subscribe.remove`, `subscribe.list`, `subscribe.pause`, `subscribe.resume` — manage event subscriptions that trigger proactive alerts
+- **Capabilities**: `system.capabilities` — check what the device supports
+
 ### Free tier
 
 `get_context` is the only data source. It returns a cached snapshot from the
