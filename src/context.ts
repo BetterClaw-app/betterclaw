@@ -1,8 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { DeviceConfig, DeviceContext, DeviceEvent, Patterns, PluginModuleLogger, RuntimeState } from "./types.js";
-
-const noopLogger: PluginModuleLogger = { info: () => {}, warn: () => {}, error: () => {} };
+import { noopLogger, type DeviceConfig, type DeviceContext, type DeviceEvent, type Patterns, type PluginModuleLogger, type RuntimeState } from "./types.js";
 
 const CONTEXT_FILE = "context.json";
 const PATTERNS_FILE = "patterns.json";

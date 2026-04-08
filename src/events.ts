@@ -1,12 +1,10 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { EventLogEntry, PluginModuleLogger } from "./types.js";
+import { noopLogger, type EventLogEntry, type PluginModuleLogger } from "./types.js";
 
 const EVENTS_FILE = "events.jsonl";
 const MAX_LINES = 10_000;
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-
-const noopLogger: PluginModuleLogger = { info: () => {}, warn: () => {}, error: () => {} };
 
 export class EventLog {
   private filePath: string;

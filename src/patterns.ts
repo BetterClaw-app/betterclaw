@@ -1,8 +1,6 @@
 import type { ContextManager } from "./context.js";
 import type { EventLog } from "./events.js";
-import type { EventLogEntry, Patterns, PluginModuleLogger } from "./types.js";
-
-const noopLogger: PluginModuleLogger = { info: () => {}, warn: () => {}, error: () => {} };
+import { noopLogger, type EventLogEntry, type Patterns, type PluginModuleLogger } from "./types.js";
 
 export class PatternEngine {
   private context: ContextManager;
