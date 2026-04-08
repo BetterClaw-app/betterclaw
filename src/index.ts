@@ -168,7 +168,7 @@ export default {
           calibrationStartedAt = Date.now() / 1000;
         }
         fs.writeFile(calibrationFile, JSON.stringify({ startedAt: calibrationStartedAt }), "utf8").catch((err) => {
-          api.logger.warn(`calibration file write failed: ${err instanceof Error ? err.message : String(err)}`);
+          api.logger.warn(`betterclaw: calibration file write failed: ${err instanceof Error ? err.message : String(err)}`);
         });
       }
 
@@ -433,7 +433,7 @@ export default {
 
         // Sequential processing — prevents budget races
         eventQueue = eventQueue.then(() => processEvent(pipelineDeps, event)).catch((err) => {
-          api.logger.error(`event processing failed: ${err}`);
+          api.logger.error(`betterclaw: event processing failed: ${err instanceof Error ? err.message : String(err)}`);
           eventLog.append({ event, decision: "error", reason: `processing error: ${err instanceof Error ? err.message : String(err)}`, timestamp: Date.now() / 1000 });
         });
       } catch (err) {
@@ -455,7 +455,7 @@ export default {
             try {
               await scanPendingReactions({ reactions: reactionTracker, api });
             } catch (err) {
-              api.logger.error(`betterclaw: reaction scan failed: ${err}`);
+              api.logger.error(`betterclaw: reaction scan failed: ${err instanceof Error ? err.message : String(err)}`);
             }
 
             // Then run learner
@@ -470,7 +470,7 @@ export default {
               });
               api.logger.info("betterclaw: daily learner completed");
             } catch (err) {
-              api.logger.error(`betterclaw: daily learner failed: ${err}`);
+              api.logger.error(`betterclaw: daily learner failed: ${err instanceof Error ? err.message : String(err)}`);
             }
           }
         });

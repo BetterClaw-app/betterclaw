@@ -98,13 +98,13 @@ export async function loadTriageProfile(stateDir: string): Promise<TriageProfile
 }
 
 
-export async function saveTriageProfile(stateDir: string, profile: TriageProfile, logger?: PluginModuleLogger): Promise<boolean> {
+export async function saveTriageProfile(stateDir: string, profile: TriageProfile, logger: PluginModuleLogger = noopLogger): Promise<boolean> {
   try {
     await fs.mkdir(stateDir, { recursive: true });
     await fs.writeFile(path.join(stateDir, "triage-profile.json"), JSON.stringify(profile, null, 2), "utf-8");
     return true;
   } catch (err) {
-    (logger ?? noopLogger).error(`triage profile save failed: ${err instanceof Error ? err.message : String(err)}`);
+    logger.error(`triage profile save failed: ${err instanceof Error ? err.message : String(err)}`);
     return false;
   }
 }
