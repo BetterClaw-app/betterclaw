@@ -1,12 +1,39 @@
 import type { ContextManager } from "../context.js";
 import { loadTriageProfile } from "../learner.js";
 
+const STALE_THRESHOLD_S = 600; // 10 minutes
+
+/** Format seconds into human-readable age string */
+function formatAge(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s ago`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`;
+  return `${Math.round(seconds / 86400)}d ago`;
+}
+
+/**
+ * On premium, stale device data (>10 min) is replaced with a pointer
+ * to the fresh node command. The agent can't shortcut to stale values.
+ */
+function deviceFieldOrPointer(
+  data: Record<string, unknown> | null,
+  ageSeconds: number | null,
+  freshCommand: string,
+  isPremium: boolean,
+): Record<string, unknown> | null {
+  if (!data) return null;
+  if (isPremium && ageSeconds != null && ageSeconds > STALE_THRESHOLD_S) {
+    return { stale: true, ageHuman: formatAge(ageSeconds), freshCommand };
+  }
+  return { ...data, dataAgeSeconds: ageSeconds };
+}
+
 export function createGetContextTool(ctx: ContextManager, stateDir?: string) {
   return {
     name: "get_context",
     label: "Get Device Context",
     description:
-      "Get BetterClaw context — patterns, trends, activity zone, event history, and cached device snapshots with staleness indicators. On premium, node commands return fresher data for current readings. On free, this includes the latest device snapshot.",
+      "Get BetterClaw context — patterns, trends, activity zone, and event history. On premium, stale device readings (>10 min) are hidden — use node commands (location.get, device.battery, health.*) for current data. On free, this includes the full device snapshot.",
     parameters: {},
     async execute(_id: string, _params: Record<string, unknown>) {
       const state = ctx.get();
@@ -14,28 +41,37 @@ export function createGetContextTool(ctx: ContextManager, stateDir?: string) {
       const patterns = await ctx.readPatterns();
       const dataAge = ctx.getDataAge();
 
-      const isPremium = runtime.tier === "premium";
+      const isPremium = runtime.tier === "premium" || runtime.tier === "premium+";
 
       const result: Record<string, unknown> = {
         tierHint: {
           tier: runtime.tier,
           note: isPremium
-            ? "Node commands available for fresh readings (location.get, device.battery, health.*)"
+            ? "Node commands available for fresh readings (location.get, device.battery, health.*). Stale device data is hidden — call the node command instead."
             : "This is the only data source on free tier — check dataAgeSeconds for freshness",
         },
         smartMode: runtime.smartMode,
       };
 
       result.device = {
-        battery: state.device.battery
-          ? { ...state.device.battery, updatedAt: ctx.getTimestamp("battery"), dataAgeSeconds: dataAge.battery }
-          : null,
-        location: state.device.location
-          ? { ...state.device.location, updatedAt: ctx.getTimestamp("location"), dataAgeSeconds: dataAge.location }
-          : null,
-        health: state.device.health
-          ? { ...state.device.health, updatedAt: ctx.getTimestamp("health"), dataAgeSeconds: dataAge.health }
-          : null,
+        battery: deviceFieldOrPointer(
+          state.device.battery as unknown as Record<string, unknown>,
+          dataAge.battery,
+          "device.battery",
+          isPremium,
+        ),
+        location: deviceFieldOrPointer(
+          state.device.location as unknown as Record<string, unknown>,
+          dataAge.location,
+          "location.get",
+          isPremium,
+        ),
+        health: deviceFieldOrPointer(
+          state.device.health as unknown as Record<string, unknown>,
+          dataAge.health,
+          "health.summary",
+          isPremium,
+        ),
       };
 
       result.activity = { ...state.activity, updatedAt: ctx.getTimestamp("activity") };
