@@ -191,7 +191,7 @@ export async function runLearner(deps: RunLearnerDeps): Promise<void> {
 
   // 13. Save if valid
   if (newProfile) {
-    await saveTriageProfile(stateDir, newProfile, api.logger as PluginModuleLogger);
+    await saveTriageProfile(stateDir, newProfile, api.logger);
   }
 
   // 14. Rotate old reactions
