@@ -167,7 +167,9 @@ export default {
         } else {
           calibrationStartedAt = Date.now() / 1000;
         }
-        fs.writeFile(calibrationFile, JSON.stringify({ startedAt: calibrationStartedAt }), "utf8").catch(() => {});
+        fs.writeFile(calibrationFile, JSON.stringify({ startedAt: calibrationStartedAt }), "utf8").catch((err) => {
+          api.logger.warn(`calibration file write failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
       }
 
       const meta = ctxManager.get().meta;

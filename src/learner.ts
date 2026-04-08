@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { EventLogEntry, TriageProfile, ReactionEntry } from "./types.js";
+import type { EventLogEntry, PluginModuleLogger, TriageProfile, ReactionEntry } from "./types.js";
 import type { EventLog } from "./events.js";
 import type { ContextManager } from "./context.js";
 import type { ReactionTracker } from "./reactions.js";
@@ -97,9 +97,17 @@ export async function loadTriageProfile(stateDir: string): Promise<TriageProfile
   }
 }
 
-export async function saveTriageProfile(stateDir: string, profile: TriageProfile): Promise<void> {
-  await fs.mkdir(stateDir, { recursive: true });
-  await fs.writeFile(path.join(stateDir, "triage-profile.json"), JSON.stringify(profile, null, 2), "utf-8");
+const noopLogger: PluginModuleLogger = { info: () => {}, warn: () => {}, error: () => {} };
+
+export async function saveTriageProfile(stateDir: string, profile: TriageProfile, logger?: PluginModuleLogger): Promise<boolean> {
+  try {
+    await fs.mkdir(stateDir, { recursive: true });
+    await fs.writeFile(path.join(stateDir, "triage-profile.json"), JSON.stringify(profile, null, 2), "utf-8");
+    return true;
+  } catch (err) {
+    (logger ?? noopLogger).error(`triage profile save failed: ${err instanceof Error ? err.message : String(err)}`);
+    return false;
+  }
 }
 
 export interface RunLearnerDeps {
@@ -183,7 +191,7 @@ export async function runLearner(deps: RunLearnerDeps): Promise<void> {
 
   // 13. Save if valid
   if (newProfile) {
-    await saveTriageProfile(stateDir, newProfile);
+    await saveTriageProfile(stateDir, newProfile, api.logger as PluginModuleLogger);
   }
 
   // 14. Rotate old reactions
