@@ -1,9 +1,19 @@
-/** Minimal logger interface for plugin modules. Compatible with the SDK's PluginLogger. */
+/**
+ * Minimal logger interface for plugin modules. Compatible with the SDK's PluginLogger.
+ *
+ * All stateful modules (EventLog, ContextManager, ReactionTracker, PatternEngine) accept
+ * an optional PluginModuleLogger in their constructor. Write operations (save, append,
+ * rotate, writePatterns) catch errors internally, log via this logger, and return boolean.
+ * Callers do NOT need try/catch around write calls — the module handles it.
+ */
 export type PluginModuleLogger = {
   info: (msg: string) => void;
   warn: (msg: string) => void;
   error: (msg: string) => void;
 };
+
+/** Shared noop logger for modules and tests. Use when logging is not needed. */
+export const noopLogger: PluginModuleLogger = { info: () => {}, warn: () => {}, error: () => {} };
 
 // -- Incoming event from iOS --
 

@@ -1,8 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { PluginModuleLogger, ReactionEntry, ReactionStatus } from "./types.js";
-
-const noopLogger: PluginModuleLogger = { info: () => {}, warn: () => {}, error: () => {} };
+import { noopLogger, type PluginModuleLogger, type ReactionEntry, type ReactionStatus } from "./types.js";
 
 export class ReactionTracker {
   private reactions: ReactionEntry[] = [];

@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import type { EventLogEntry, PluginModuleLogger, TriageProfile, ReactionEntry } from "./types.js";
+import { noopLogger, type EventLogEntry, type PluginModuleLogger, type TriageProfile, type ReactionEntry } from "./types.js";
 import type { EventLog } from "./events.js";
 import type { ContextManager } from "./context.js";
 import type { ReactionTracker } from "./reactions.js";
@@ -97,7 +97,6 @@ export async function loadTriageProfile(stateDir: string): Promise<TriageProfile
   }
 }
 
-const noopLogger: PluginModuleLogger = { info: () => {}, warn: () => {}, error: () => {} };
 
 export async function saveTriageProfile(stateDir: string, profile: TriageProfile, logger?: PluginModuleLogger): Promise<boolean> {
   try {
