@@ -14,6 +14,10 @@ export class RulesEngine {
   }
 
   evaluate(event: DeviceEvent, context: DeviceContext, budgetOverride?: number): FilterDecision {
+    // Note: debug, critical battery, and geofence events intentionally bypass the push
+    // budget check below. These are high-priority events that should always reach the
+    // agent regardless of daily budget limits.
+
     // Debug events always pass
     if (event.data._debugFired === 1.0) {
       return { action: "push", reason: "debug event — always push" };
@@ -51,16 +55,6 @@ export class RulesEngine {
         return { action: "drop", reason: "battery-low: level unchanged since last push" };
       }
       return { action: "push", reason: "battery low — level changed" };
-    }
-
-    // Daily health — check time window
-    if (event.subscriptionId === "default.daily-health") {
-      const hour = new Date(event.firedAt * 1000).getHours();
-      // Preferred window: 6am-10am
-      if (hour >= 6 && hour <= 10) {
-        return { action: "push", reason: "daily health summary — within morning window" };
-      }
-      return { action: "drop", reason: "daily health summary — outside morning window" };
     }
 
     // Push budget check
