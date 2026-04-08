@@ -1,3 +1,10 @@
+/** Minimal logger interface for plugin modules. Compatible with the SDK's PluginLogger. */
+export type PluginModuleLogger = {
+  info: (msg: string) => void;
+  warn: (msg: string) => void;
+  error: (msg: string) => void;
+};
+
 // -- Incoming event from iOS --
 
 export interface DeviceEvent {
@@ -76,7 +83,7 @@ export type FilterDecision =
 
 export interface EventLogEntry {
   event: DeviceEvent;
-  decision: "push" | "drop" | "stored" | "free_stored";
+  decision: "push" | "drop" | "stored" | "free_stored" | "blocked" | "error";
   reason: string;
   timestamp: number;
 }
