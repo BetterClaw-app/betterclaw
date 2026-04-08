@@ -4,9 +4,11 @@ import type { EventLog } from "./events.js";
 import type { RulesEngine } from "./filter.js";
 import type { ReactionTracker } from "./reactions.js";
 import type { DeviceEvent, DeviceContext, PluginConfig } from "./types.js";
+import { errorMessage } from "./types.js";
 import { triageEvent } from "./triage.js";
 import { loadTriageProfile } from "./learner.js";
 import { requireEntitlement } from "./jwt.js";
+import { dlog } from "./diagnostic-logger.js";
 
 export interface PipelineDeps {
   api: OpenClawPluginApi;
@@ -21,13 +23,15 @@ export interface PipelineDeps {
 export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Promise<void> {
   const { api, config, context, events, rules } = deps;
 
+  dlog.info("plugin.pipeline", "event.received", "incoming device event", { subscriptionId: event.subscriptionId, source: event.source });
+
   // Always update context (even for non-premium users)
   context.updateFromEvent(event);
   await context.save();
 
   // Tier gate: free users get store-only path — no triage, no push
   if (context.getRuntimeState().tier === "free") {
-    api.logger.info(`betterclaw: event stored (free tier)`);
+    dlog.info("plugin.pipeline", "event.free_stored", "event stored (free tier)", { subscriptionId: event.subscriptionId });
     await events.append({ event, decision: "free_stored", reason: "free tier", timestamp: Date.now() / 1000 });
     return;
   }
@@ -35,7 +39,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   // Gate event forwarding behind premium entitlement (security boundary)
   const entitlementError = requireEntitlement("premium");
   if (entitlementError) {
-    api.logger.info(`betterclaw: event blocked (no premium entitlement)`);
+    dlog.info("plugin.pipeline", "event.blocked", "event blocked (no premium entitlement)", { subscriptionId: event.subscriptionId });
     await events.append({ event, decision: "blocked", reason: "no premium entitlement", timestamp: Date.now() / 1000 });
     return;
   }
@@ -86,6 +90,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
           pushedAt: Date.now() / 1000,
           messageSummary: message.slice(0, 100),
         });
+        dlog.info("plugin.pipeline", "push.decided", "event pushed to agent via triage", { subscriptionId: event.subscriptionId, decision: "push", reason: `triage: ${triageResult.reason}` });
       }
 
       await events.append({
@@ -121,6 +126,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
         pushedAt: Date.now() / 1000,
         messageSummary: message.slice(0, 100),
       });
+      dlog.info("plugin.pipeline", "push.decided", "event pushed to agent", { subscriptionId: event.subscriptionId, decision: "push", reason: decision.reason });
     }
 
     await events.append({
@@ -136,7 +142,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
       reason: decision.reason,
       timestamp: Date.now() / 1000,
     });
-    api.logger.info(`betterclaw: drop event ${event.subscriptionId}: ${decision.reason}`);
+    dlog.info("plugin.pipeline", "push.decided", "event dropped", { subscriptionId: event.subscriptionId, decision: "drop", reason: decision.reason });
   }
 
   // Persist context and reactions
@@ -154,12 +160,11 @@ async function pushToAgent(deps: PipelineDeps, event: DeviceEvent, reason: strin
       deliver: false,
       idempotencyKey,
     });
-    deps.api.logger.info(`betterclaw: pushed event ${event.subscriptionId} to agent`);
+    dlog.info("plugin.pipeline", "push.sent", "event pushed to agent", { subscriptionId: event.subscriptionId });
     return true;
   } catch (err) {
-    deps.api.logger.error(
-      `betterclaw: failed to push to agent: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    const msg = errorMessage(err);
+    dlog.error("plugin.pipeline", "push.failed", "failed to push event to agent", { subscriptionId: event.subscriptionId, error: msg });
     return false;
   }
 }

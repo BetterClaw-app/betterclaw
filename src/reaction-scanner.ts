@@ -1,6 +1,8 @@
 import type { ReactionStatus } from "./types.js";
 import type { ReactionTracker } from "./reactions.js";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { errorMessage } from "./types.js";
+import { dlog } from "./diagnostic-logger.js";
 
 // --- Types ---
 
@@ -133,13 +135,16 @@ export function parseClassificationResponse(text: string): ClassificationResult 
 export async function scanPendingReactions(deps: ScanDeps): Promise<void> {
   const { api, reactions } = deps;
 
+  let classified = 0;
+  let skipped = 0;
+
   const pending = reactions.getPending();
   if (pending.length === 0) {
-    api.logger.info("reaction-scanner: no pending reactions to classify");
+    dlog.debug("plugin.reactions", "scan.empty", "no pending reactions to classify");
     return;
   }
 
-  api.logger.info(`reaction-scanner: scanning ${pending.length} pending reaction(s)`);
+  dlog.info("plugin.reactions", "scan.started", "scanning pending reactions", { pendingCount: pending.length });
 
   // Fetch session messages once (limit 200) to search through
   let messages: Array<{ role: string; content: unknown; timestamp?: number }> = [];
@@ -150,9 +155,8 @@ export async function scanPendingReactions(deps: ScanDeps): Promise<void> {
     });
     messages = fetched as typeof messages;
   } catch (err) {
-    api.logger.error(
-      `reaction-scanner: failed to fetch session messages: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    const msg = errorMessage(err);
+    dlog.error("plugin.reactions", "scan.error", "failed to fetch session messages", { error: msg });
     return;
   }
 
@@ -161,9 +165,8 @@ export async function scanPendingReactions(deps: ScanDeps): Promise<void> {
       // Step 1: Deterministic search
       const match = findPushInMessages(messages, reaction.pushedAt, reaction.messageSummary);
       if (!match) {
-        api.logger.info(
-          `reaction-scanner: no transcript match for ${reaction.subscriptionId} at ${reaction.pushedAt} — skipping`,
-        );
+        skipped++;
+        dlog.info("plugin.reactions", "scan.skipped", "no transcript match for reaction", { subscriptionId: reaction.subscriptionId, pushedAt: reaction.pushedAt });
         continue;
       }
 
@@ -214,15 +217,15 @@ export async function scanPendingReactions(deps: ScanDeps): Promise<void> {
         classificationResult.reason,
       );
 
-      api.logger.info(
-        `reaction-scanner: classified ${reaction.subscriptionId} as "${classificationResult.status}" — ${classificationResult.reason}`,
-      );
+      classified++;
+      dlog.info("plugin.reactions", "classified", "reaction classified", { subscriptionId: reaction.subscriptionId, status: classificationResult.status, reason: classificationResult.reason });
     } catch (err) {
-      api.logger.error(
-        `reaction-scanner: error classifying ${reaction.subscriptionId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      const msg = errorMessage(err);
+      dlog.error("plugin.reactions", "classified.error", "error classifying reaction", { subscriptionId: reaction.subscriptionId, error: msg });
     }
   }
+
+  dlog.info("plugin.reactions", "scan.completed", "reaction scan finished", { classified, skipped });
 
   // Persist updated reactions (save is self-catching)
   await reactions.save();

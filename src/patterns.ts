@@ -1,6 +1,7 @@
 import type { ContextManager } from "./context.js";
 import type { EventLog } from "./events.js";
 import { noopLogger, type EventLogEntry, type Patterns, type PluginModuleLogger } from "./types.js";
+import { dlog } from "./diagnostic-logger.js";
 
 export class PatternEngine {
   private context: ContextManager;
@@ -64,6 +65,11 @@ export class PatternEngine {
     };
 
     await this.context.writePatterns(patterns);
+
+    dlog.info("plugin.patterns", "compute.completed", "pattern compute finished", {
+      eventsProcessed: entries.length,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
 
     // Rotate event log if needed
     await this.events.rotate();
