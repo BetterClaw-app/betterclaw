@@ -1,6 +1,6 @@
 import type { ContextManager } from "./context.js";
 import type { EventLog } from "./events.js";
-import { noopLogger, type EventLogEntry, type Patterns, type PluginModuleLogger } from "./types.js";
+import { errorMessage, noopLogger, type EventLogEntry, type Patterns, type PluginModuleLogger } from "./types.js";
 import { dlog } from "./diagnostic-logger.js";
 
 export class PatternEngine {
@@ -19,7 +19,7 @@ export class PatternEngine {
 
   startSchedule(analysisHour: number, dailyCallback?: () => Promise<void>): void {
     // Run initial compute on startup
-    void this.compute().catch((err) => { this.logger.warn(`initial pattern compute failed: ${err instanceof Error ? err.message : String(err)}`); });
+    void this.compute().catch((err) => { this.logger.warn(`initial pattern compute failed: ${errorMessage(err)}`); });
 
     this.scheduleNext(analysisHour, dailyCallback);
   }
@@ -38,7 +38,7 @@ export class PatternEngine {
         await this.compute();
         if (dailyCallback) await dailyCallback();
       } catch (err) {
-        this.logger.warn(`scheduled pattern compute failed: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(`scheduled pattern compute failed: ${errorMessage(err)}`);
       }
       this.scheduleNext(analysisHour, dailyCallback);
     }, msUntil);

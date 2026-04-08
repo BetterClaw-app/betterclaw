@@ -100,6 +100,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
         timestamp: Date.now() / 1000,
       });
     } else {
+      dlog.info("plugin.pipeline", "push.decided", `triage drop: ${triageResult.reason}`, { subscriptionId: event.subscriptionId, decision: "drop", reason: `triage: ${triageResult.reason}` });
       await events.append({
         event,
         decision: "drop",

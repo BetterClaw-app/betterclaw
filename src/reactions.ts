@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { noopLogger, type PluginModuleLogger, type ReactionEntry, type ReactionStatus } from "./types.js";
+import { errorMessage, noopLogger, type PluginModuleLogger, type ReactionEntry, type ReactionStatus } from "./types.js";
 
 export class ReactionTracker {
   private reactions: ReactionEntry[] = [];
@@ -58,7 +58,7 @@ export class ReactionTracker {
       await fs.writeFile(this.filePath, lines + "\n", "utf-8");
       return true;
     } catch (err) {
-      this.logger.error(`reactions save failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.error(`reactions save failed: ${errorMessage(err)}`);
       return false;
     }
   }

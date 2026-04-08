@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { noopLogger, type EventLogEntry, type PluginModuleLogger, type TriageProfile, type ReactionEntry } from "./types.js";
+import { errorMessage, noopLogger, type EventLogEntry, type PluginModuleLogger, type TriageProfile, type ReactionEntry } from "./types.js";
 import type { EventLog } from "./events.js";
 import type { ContextManager } from "./context.js";
 import type { ReactionTracker } from "./reactions.js";
@@ -105,7 +105,7 @@ export async function saveTriageProfile(stateDir: string, profile: TriageProfile
     await fs.writeFile(path.join(stateDir, "triage-profile.json"), JSON.stringify(profile, null, 2), "utf-8");
     return true;
   } catch (err) {
-    logger.error(`triage profile save failed: ${err instanceof Error ? err.message : String(err)}`);
+    logger.error(`triage profile save failed: ${errorMessage(err)}`);
     return false;
   }
 }

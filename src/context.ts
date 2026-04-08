@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { noopLogger, type DeviceConfig, type DeviceContext, type DeviceEvent, type Patterns, type PluginModuleLogger, type RuntimeState } from "./types.js";
+import { errorMessage, noopLogger, type DeviceConfig, type DeviceContext, type DeviceEvent, type Patterns, type PluginModuleLogger, type RuntimeState } from "./types.js";
 
 const CONTEXT_FILE = "context.json";
 const PATTERNS_FILE = "patterns.json";
@@ -92,7 +92,7 @@ export class ContextManager {
       await fs.writeFile(configPath, JSON.stringify(this.deviceConfig, null, 2) + "\n", "utf8");
       return true;
     } catch (err) {
-      this.logger.error(`context save failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.error(`context save failed: ${errorMessage(err)}`);
       return false;
     }
   }
@@ -288,7 +288,7 @@ export class ContextManager {
       await fs.writeFile(this.patternsPath, JSON.stringify(patterns, null, 2) + "\n", "utf8");
       return true;
     } catch (err) {
-      this.logger.error(`patterns write failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.error(`patterns write failed: ${errorMessage(err)}`);
       return false;
     }
   }
