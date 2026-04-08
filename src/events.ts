@@ -1,6 +1,6 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { noopLogger, type EventLogEntry, type PluginModuleLogger } from "./types.js";
+import { errorMessage, noopLogger, type EventLogEntry, type PluginModuleLogger } from "./types.js";
 
 const EVENTS_FILE = "events.jsonl";
 const MAX_LINES = 10_000;
@@ -22,7 +22,7 @@ export class EventLog {
       await fs.appendFile(this.filePath, line, "utf8");
       return true;
     } catch (err) {
-      this.logger.error(`events append failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.error(`events append failed: ${errorMessage(err)}`);
       return false;
     }
   }
@@ -69,7 +69,7 @@ export class EventLog {
 
       return removed;
     } catch (err) {
-      this.logger.error(`events rotate failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.error(`events rotate failed: ${errorMessage(err)}`);
       return 0;
     }
   }
