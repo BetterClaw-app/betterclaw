@@ -15,6 +15,21 @@ export type PluginModuleLogger = {
 /** Shared noop logger for modules and tests. Use when logging is not needed. */
 export const noopLogger: PluginModuleLogger = { info: () => {}, warn: () => {}, error: () => {} };
 
+/** Extract error message from unknown catch parameter. */
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Structured log entry for diagnostic JSONL files. */
+export interface PluginLogEntry {
+  timestamp: number;
+  level: "debug" | "info" | "warn" | "error";
+  source: string;
+  event: string;
+  message: string;
+  data?: Record<string, unknown>;
+}
+
 // -- Incoming event from iOS --
 
 export interface DeviceEvent {
