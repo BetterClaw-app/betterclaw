@@ -1,29 +1,45 @@
 import type { ContextManager } from "../context.js";
 import { loadTriageProfile } from "../learner.js";
 
-const STALE_THRESHOLD_S = 600; // 10 minutes
+// Per-field staleness thresholds (seconds)
+// Location: updates every ~60s on movement, 10 min threshold
+// Battery: updates every 10 min, 15 min threshold
+// Health: updates every 30 min, 60 min threshold
+const STALE_THRESHOLDS: Record<string, number> = {
+  location: 600,
+  battery: 900,
+  health: 3600,
+};
 
 /** Format seconds into human-readable age string */
-function formatAge(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s ago`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`;
-  return `${Math.round(seconds / 86400)}d ago`;
+export function formatAge(seconds: number): string {
+  const clamped = Math.max(0, seconds);
+  if (clamped < 60) return `${Math.round(clamped)}s ago`;
+  if (clamped < 3600) return `${Math.round(clamped / 60)}m ago`;
+  if (clamped < 86400) return `${Math.round(clamped / 3600)}h ago`;
+  return `${Math.round(clamped / 86400)}d ago`;
 }
 
 /**
- * On premium, stale device data (>10 min) is replaced with a pointer
- * to the fresh node command. The agent can't shortcut to stale values.
+ * On premium, stale device data is replaced with a pointer to the fresh
+ * node command. Null age is treated as stale on premium (no timestamp =
+ * can't verify freshness).
  */
 function deviceFieldOrPointer(
   data: Record<string, unknown> | null,
   ageSeconds: number | null,
   freshCommand: string,
   isPremium: boolean,
+  field: string,
 ): Record<string, unknown> | null {
   if (!data) return null;
-  if (isPremium && ageSeconds != null && ageSeconds > STALE_THRESHOLD_S) {
-    return { stale: true, ageHuman: formatAge(ageSeconds), freshCommand };
+  const threshold = STALE_THRESHOLDS[field] ?? 600;
+  if (isPremium && (ageSeconds == null || ageSeconds > threshold)) {
+    return {
+      stale: true,
+      ageHuman: ageSeconds != null ? formatAge(ageSeconds) : "unknown",
+      freshCommand,
+    };
   }
   return { ...data, dataAgeSeconds: ageSeconds };
 }
@@ -33,7 +49,7 @@ export function createGetContextTool(ctx: ContextManager, stateDir?: string) {
     name: "get_context",
     label: "Get Device Context",
     description:
-      "Get BetterClaw context — patterns, trends, activity zone, and event history. On premium, stale device readings (>10 min) are hidden — use node commands (location.get, device.battery, health.*) for current data. On free, this includes the full device snapshot.",
+      "Get BetterClaw context — patterns, trends, activity zone, and event history. On premium, stale device readings are hidden — use node commands (location.get, device.battery, health.*) for current data. On free, this includes the full device snapshot.",
     parameters: {},
     async execute(_id: string, _params: Record<string, unknown>) {
       const state = ctx.get();
@@ -41,7 +57,7 @@ export function createGetContextTool(ctx: ContextManager, stateDir?: string) {
       const patterns = await ctx.readPatterns();
       const dataAge = ctx.getDataAge();
 
-      const isPremium = runtime.tier === "premium" || runtime.tier === "premium+";
+      const isPremium = runtime.tier === "premium";
 
       const result: Record<string, unknown> = {
         tierHint: {
@@ -59,18 +75,21 @@ export function createGetContextTool(ctx: ContextManager, stateDir?: string) {
           dataAge.battery,
           "device.battery",
           isPremium,
+          "battery",
         ),
         location: deviceFieldOrPointer(
           state.device.location as unknown as Record<string, unknown>,
           dataAge.location,
           "location.get",
           isPremium,
+          "location",
         ),
         health: deviceFieldOrPointer(
           state.device.health as unknown as Record<string, unknown>,
           dataAge.health,
           "health.summary",
           isPremium,
+          "health",
         ),
       };
 
