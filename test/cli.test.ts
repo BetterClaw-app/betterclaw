@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BETTERCLAW_COMMANDS, mergeAllowCommands } from "../src/cli.js";
+import { BETTERCLAW_COMMANDS, mergeAllowCommands, mergeAlsoAllow } from "../src/cli.js";
 
 describe("CLI setup", () => {
   it("has 23 commands", () => {
@@ -27,5 +27,25 @@ describe("CLI setup", () => {
     const merged = mergeAllowCommands(existing, BETTERCLAW_COMMANDS);
     const added = merged.length - existing.length;
     expect(added).toBe(21); // 23 total - 2 already exist
+  });
+});
+
+describe("mergeAlsoAllow", () => {
+  it("merges two arrays and deduplicates", () => {
+    const result = mergeAlsoAllow(["check_tier"], ["get_context", "check_tier"]);
+    expect(result).toContain("check_tier");
+    expect(result).toContain("get_context");
+    expect(result.filter(x => x === "check_tier")).toHaveLength(1);
+  });
+
+  it("preserves order (not sorted)", () => {
+    const result = mergeAlsoAllow(["z_tool", "a_tool"], ["m_tool"]);
+    expect(result).toEqual(["z_tool", "a_tool", "m_tool"]);
+  });
+
+  it("handles empty arrays", () => {
+    expect(mergeAlsoAllow([], [])).toEqual([]);
+    expect(mergeAlsoAllow([], ["a"])).toEqual(["a"]);
+    expect(mergeAlsoAllow(["a"], [])).toEqual(["a"]);
   });
 });

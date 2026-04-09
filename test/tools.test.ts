@@ -132,6 +132,127 @@ describe("get_context tool", () => {
   });
 });
 
+describe("createGetContextTool output shape", () => {
+  it("premium + smartMode + battery snapshot returns all expected top-level keys", async () => {
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-shape-"));
+    const ctx = new ContextManager(tmpDir);
+    ctx.setRuntimeState({ tier: "premium", smartMode: true });
+    const recentTs = Date.now() / 1000 - 10;
+    ctx.applySnapshot(
+      { battery: { level: 0.8, state: "charging", isLowPowerMode: false } },
+      recentTs,
+    );
+
+    const tool = createGetContextTool(ctx);
+    const result = await tool.execute("test", {});
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed).toHaveProperty("tierHint");
+    expect(parsed).toHaveProperty("device");
+    expect(parsed).toHaveProperty("activity");
+    expect(parsed).toHaveProperty("meta");
+    expect(parsed).toHaveProperty("smartMode", true);
+    expect(parsed.tierHint.tier).toBe("premium");
+  });
+});
+
+describe("get_context stale data hiding (deviceFieldOrPointer)", () => {
+  let tmpDir: string;
+  let ctx: ContextManager;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-dfop-"));
+    ctx = new ContextManager(tmpDir);
+    ctx.setRuntimeState({ tier: "premium", smartMode: true });
+  });
+
+  it("premium + stale battery (>900s) returns pointer with stale:true", async () => {
+    const oldTs = Date.now() / 1000 - 1200; // 20 min ago, threshold is 900s
+    ctx.applySnapshot(
+      { battery: { level: 0.5, state: "unplugged", isLowPowerMode: false } },
+      oldTs,
+    );
+
+    const tool = createGetContextTool(ctx);
+    const result = await tool.execute("test", {});
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.device.battery.stale).toBe(true);
+    expect(parsed.device.battery.freshCommand).toBe("device.battery");
+    expect(parsed.device.battery.ageHuman).toContain("m ago");
+    expect(parsed.device.battery.level).toBeUndefined();
+  });
+
+  it("premium + fresh battery (<900s) returns data with dataAgeSeconds", async () => {
+    const recentTs = Date.now() / 1000 - 60; // 1 min ago
+    ctx.applySnapshot(
+      { battery: { level: 0.8, state: "charging", isLowPowerMode: false } },
+      recentTs,
+    );
+
+    const tool = createGetContextTool(ctx);
+    const result = await tool.execute("test", {});
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.device.battery.stale).toBeUndefined();
+    expect(parsed.device.battery.level).toBe(0.8);
+    expect(parsed.device.battery.dataAgeSeconds).toBeLessThan(120);
+  });
+
+  it("premium + stale location (>600s) returns pointer", async () => {
+    const oldTs = Date.now() / 1000 - 900; // 15 min ago, threshold is 600s
+    ctx.applySnapshot({ location: { latitude: 48.1, longitude: 11.5 } }, oldTs);
+
+    const tool = createGetContextTool(ctx);
+    const result = await tool.execute("test", {});
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.device.location.stale).toBe(true);
+    expect(parsed.device.location.freshCommand).toBe("location.get");
+    expect(parsed.device.location.latitude).toBeUndefined();
+  });
+
+  it("premium + stale health (>3600s) returns pointer", async () => {
+    const oldTs = Date.now() / 1000 - 5400; // 90 min ago, threshold is 3600s
+    ctx.applySnapshot({ health: { stepsToday: 8000 } }, oldTs);
+
+    const tool = createGetContextTool(ctx);
+    const result = await tool.execute("test", {});
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.device.health.stale).toBe(true);
+    expect(parsed.device.health.freshCommand).toBe("health.summary");
+    expect(parsed.device.health.stepsToday).toBeUndefined();
+  });
+
+  it("free tier returns data regardless of age", async () => {
+    ctx.setRuntimeState({ tier: "free", smartMode: false });
+    const oldTs = Date.now() / 1000 - 5400; // 90 min ago
+    ctx.applySnapshot(
+      { battery: { level: 0.3, state: "unplugged", isLowPowerMode: true } },
+      oldTs,
+    );
+
+    const tool = createGetContextTool(ctx);
+    const result = await tool.execute("test", {});
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.device.battery.level).toBe(0.3);
+    expect(parsed.device.battery.stale).toBeUndefined();
+  });
+
+  it("null data returns null (no pointer)", async () => {
+    // No snapshot applied — all device fields should be null
+    const tool = createGetContextTool(ctx);
+    const result = await tool.execute("test", {});
+    const parsed = JSON.parse(result.content[0].text);
+
+    expect(parsed.device.battery).toBeNull();
+    expect(parsed.device.location).toBeNull();
+    expect(parsed.device.health).toBeNull();
+  });
+});
+
 describe("get_context stale data hiding (premium)", () => {
   let tmpDir: string;
   let ctx: ContextManager;
