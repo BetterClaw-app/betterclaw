@@ -8,6 +8,10 @@
     "url": "https://github.com/BetterClaw-app/betterclaw.git"
   },
   "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+  },
   "openclaw": {
     "extensions": [
       "./src/index.ts"

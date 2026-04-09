@@ -40,7 +40,7 @@ const DEFAULT_CONFIG: PluginConfig = {
   calibrationDays: 3,
 };
 
-function resolveConfig(raw: Record<string, unknown> | undefined): PluginConfig {
+export function resolveConfig(raw: Record<string, unknown> | undefined): PluginConfig {
   const cfg = raw ?? {};
   return {
     triageModel: (cfg.triageModel as string) ?? (cfg.llmModel as string) ?? "openai/gpt-4o-mini",
