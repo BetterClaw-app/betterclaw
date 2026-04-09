@@ -2,25 +2,23 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { processEvent } from "../src/pipeline.js";
-import type { PipelineDeps } from "../src/pipeline.js";
-import { ContextManager } from "../src/context.js";
-import { EventLog } from "../src/events.js";
-import { RulesEngine } from "../src/filter.js";
-import { ReactionTracker } from "../src/reactions.js";
-import type { DeviceEvent, PluginConfig } from "../src/types.js";
+import { processEvent } from "../../src/pipeline.js";
+import type { PipelineDeps } from "../../src/pipeline.js";
+import { ContextManager } from "../../src/context.js";
+import { EventLog } from "../../src/events.js";
+import { RulesEngine } from "../../src/filter.js";
+import { ReactionTracker } from "../../src/reactions.js";
+import type { DeviceEvent, PluginConfig } from "../../src/types.js";
 
-// Mock requireEntitlement at module level — must be at top before any test
-vi.mock("../src/jwt.js", () => ({
+vi.mock("../../src/jwt.js", () => ({
   requireEntitlement: vi.fn(() => null),
 }));
 
-// Also mock triage so we never hit LLM calls
-vi.mock("../src/triage.js", () => ({
+vi.mock("../../src/triage.js", () => ({
   triageEvent: vi.fn(async () => ({ push: false, reason: "mocked triage" })),
 }));
 
-vi.mock("../src/learner.js", () => ({
+vi.mock("../../src/learner.js", () => ({
   loadTriageProfile: vi.fn(async () => ({
     summary: "test",
     interruptionTolerance: "normal",
