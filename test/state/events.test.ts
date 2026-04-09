@@ -116,3 +116,58 @@ describe("EventLog.readRecent", () => {
     expect(recent[0].event.subscriptionId).toBe("sub-10");
   });
 });
+
+describe("EventLog.rotate", () => {
+  let tmpDir: string;
+  let log: EventLog;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-rotate-"));
+    log = new EventLog(tmpDir);
+  });
+
+  it("returns 0 when entry count under MAX_LINES", async () => {
+    for (let i = 0; i < 50; i++) {
+      await log.append(makeEntry(i));
+    }
+    const removed = await log.rotate();
+    expect(removed).toBe(0);
+    // Entries should still be intact
+    const all = await log.readAll();
+    expect(all).toHaveLength(50);
+  });
+
+  it("returns 0 on empty log (missing file)", async () => {
+    const removed = await log.rotate();
+    expect(removed).toBe(0);
+  });
+
+  it("returns 0 on empty log (empty file)", async () => {
+    await fs.writeFile(path.join(tmpDir, "events.jsonl"), "", "utf8");
+    const removed = await log.rotate();
+    expect(removed).toBe(0);
+  });
+});
+
+describe("EventLog.count", () => {
+  let tmpDir: string;
+  let log: EventLog;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-count-"));
+    log = new EventLog(tmpDir);
+  });
+
+  it("returns 0 for missing file", async () => {
+    const count = await log.count();
+    expect(count).toBe(0);
+  });
+
+  it("returns correct count for populated file", async () => {
+    for (let i = 0; i < 15; i++) {
+      await log.append(makeEntry(i));
+    }
+    const count = await log.count();
+    expect(count).toBe(15);
+  });
+});
