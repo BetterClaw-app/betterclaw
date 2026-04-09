@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
 import { processEvent } from "../../src/pipeline.js";
+import { makeTmpDir } from "../helpers.js";
 import type { PipelineDeps } from "../../src/pipeline.js";
 import { ContextManager } from "../../src/context.js";
 import { EventLog } from "../../src/events.js";
@@ -96,8 +94,7 @@ describe("pipeline integration", () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-pipeline-"));
-    vi.clearAllMocks();
+    tmpDir = await makeTmpDir("betterclaw-pipeline-");
   });
 
   it("free tier: stores event with free_stored decision, no push attempt", async () => {

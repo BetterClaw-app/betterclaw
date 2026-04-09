@@ -51,7 +51,7 @@ function makeMockApi() {
     runtime: {
       subagent: {
         run: vi.fn(async () => ({ runId: "mock-run-id" })),
-        waitForRun: vi.fn(async () => {}),
+        waitForRun: vi.fn(async () => ({ status: "completed" })),
         getSessionMessages: vi.fn(async () => ({ messages: [] })),
         deleteSession: vi.fn(async () => {}),
       },
@@ -140,19 +140,20 @@ let tmpDir: string;
 
 beforeEach(async () => {
   tmpDir = await makeTmpDir("betterclaw-e2e-");
-  vi.clearAllMocks();
+  tmpDirs.push(tmpDir);
+  // Re-stub fetch (unstubGlobals restores the original after each test)
+  vi.stubGlobal("fetch", mockFetch);
   // Default: triage returns push:true
   mockFetch.mockResolvedValue(triageFetchResponse(true, "relevant event"));
 });
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
+const tmpDirs: string[] = [];
 
 afterAll(async () => {
-  vi.unstubAllGlobals();
-  // Cleanup tmpDir (best-effort)
-  try { await fs.rm(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  // Cleanup all tmpDirs (best-effort)
+  for (const dir of tmpDirs) {
+    try { await fs.rm(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
 });
 
 describe("Scenario 1: Full event lifecycle", () => {
@@ -361,6 +362,7 @@ describe("Scenario 4: State accumulation", () => {
 describe("Scenario 5: Cold start", () => {
   it("processes first event from fresh state with no files", async () => {
     const freshDir = await makeTmpDir("betterclaw-e2e-cold-");
+    tmpDirs.push(freshDir);
     const { deps, patterns } = makeDeps(freshDir);
 
     const event = batteryLowEvent(0.18);
@@ -382,8 +384,7 @@ describe("Scenario 5: Cold start", () => {
     expect(computed).toBeDefined();
     expect(computed.batteryPatterns.lowBatteryFrequency).not.toBeNull();
 
-    // Cleanup
-    try { await fs.rm(freshDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    // Cleanup handled by afterAll
   });
 });
 

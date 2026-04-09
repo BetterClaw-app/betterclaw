@@ -99,13 +99,14 @@ describe("JWT verification", () => {
   });
 });
 
-const now = Math.floor(Date.now() / 1000);
+// Use a fixed far-future timestamp to avoid drift in watch mode
+const TEST_IAT = 2000000000; // ~2033
 const premiumPayload: JwtPayload = {
   sub: "test-device",
   aud: "betterclaw",
   ent: ["premium"],
-  iat: now,
-  exp: now + 3600,
+  iat: TEST_IAT,
+  exp: TEST_IAT + 3600,
   iss: "api.betterclaw.app",
 };
 
@@ -113,8 +114,8 @@ const fullPayload: JwtPayload = {
   sub: "test-device",
   aud: "betterclaw",
   ent: ["premium", "shortcuts"],
-  iat: now,
-  exp: now + 3600,
+  iat: TEST_IAT,
+  exp: TEST_IAT + 3600,
   iss: "api.betterclaw.app",
 };
 
@@ -152,7 +153,7 @@ describe("Entitlement gating", () => {
   it("storeJwt rejects JWT signed with wrong key", async () => {
     const keyPair = await generateTestKeyPair();
     const token = await signTestJwt(
-      { sub: "d", aud: "betterclaw", ent: ["premium"], iat: now, exp: now + 3600, iss: "api.betterclaw.app" },
+      { sub: "d", aud: "betterclaw", ent: ["premium"], iat: TEST_IAT, exp: TEST_IAT + 3600, iss: "api.betterclaw.app" },
       keyPair.privateKey
     );
     const result = await storeJwt(token);

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { triageEvent } from "../../src/triage.js";
 import type { ContextManager } from "../../src/context.js";
 import type { DeviceEvent, TriageProfile } from "../../src/types.js";
@@ -35,9 +35,6 @@ const profile: TriageProfile = {
 
 const config = { triageModel: "openai/gpt-4o-mini" };
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
 
 describe("triageEvent", () => {
   it("returns push decision on successful API call", async () => {

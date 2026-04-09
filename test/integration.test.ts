@@ -152,8 +152,9 @@ describe("plugin registration", () => {
   async function registerAndInit(apiOverrides?: Record<string, any>): Promise<void> {
     const api = apiOverrides ? { ...mockApi(), ...apiOverrides } : mockApi();
     plugin.register(api as any);
-    await vi.waitFor(() => {}, { timeout: 500 });
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => { expect(api.registerGatewayMethod).toHaveBeenCalled(); }, { timeout: 500 });
+    // Let fire-and-forget async init (context load, calibration) settle
+    await new Promise((r) => setTimeout(r, 50));
   }
 
   function mockApi() {
@@ -174,14 +175,15 @@ describe("plugin registration", () => {
           loadConfig: vi.fn().mockResolvedValue({}),
           writeConfigFile: vi.fn().mockResolvedValue(undefined),
         },
-      },
-      subagent: {
-        run: vi.fn().mockResolvedValue({ runId: "test" }),
-        waitForRun: vi.fn().mockResolvedValue(undefined),
-        getSessionMessages: vi.fn().mockResolvedValue({ messages: [] }),
-      },
-      modelAuth: {
-        resolveApiKeyForProvider: vi.fn().mockResolvedValue("test-key"),
+        subagent: {
+          run: vi.fn().mockResolvedValue({ runId: "test" }),
+          waitForRun: vi.fn().mockResolvedValue({ status: "completed" }),
+          getSessionMessages: vi.fn().mockResolvedValue({ messages: [] }),
+          deleteSession: vi.fn().mockResolvedValue(undefined),
+        },
+        modelAuth: {
+          resolveApiKeyForProvider: vi.fn().mockResolvedValue({ apiKey: "test-key" }),
+        },
       },
       registerGatewayMethod: vi.fn((name: string, handler: Function) => {
         gatewayMethods.set(name, handler);
@@ -212,8 +214,8 @@ describe("plugin registration", () => {
     plugin.register(api as any);
 
     // Let async init IIFEs settle
-    await vi.waitFor(() => {}, { timeout: 500 });
-    await new Promise((r) => setTimeout(r, 20));
+    await vi.waitFor(() => { expect(api.registerGatewayMethod).toHaveBeenCalled(); }, { timeout: 500 });
+    await new Promise((r) => setTimeout(r, 50));
 
     // 7 gateway methods
     const expectedMethods = [
@@ -253,7 +255,8 @@ describe("plugin registration", () => {
   async function registerPlugin(apiOverrides?: Record<string, any>) {
     const api = apiOverrides ? { ...mockApi(), ...apiOverrides } : mockApi();
     plugin.register(api as any);
-    await vi.waitFor(() => {}, { timeout: 500 });
+    await vi.waitFor(() => { expect(api.registerGatewayMethod).toHaveBeenCalled(); }, { timeout: 500 });
+    // Let fire-and-forget async init (context load, calibration) settle
     await new Promise((r) => setTimeout(r, 50));
     return api;
   }
@@ -441,8 +444,6 @@ describe("plugin registration", () => {
       expect(mockProcessEvent).toHaveBeenCalledTimes(1);
       const eventArg = mockProcessEvent.mock.calls[0][1];
       expect(eventArg.firedAt).toBe(now / 1000);
-
-      vi.restoreAllMocks();
     });
 
     it("accepts valid event and responds immediately", async () => {
@@ -695,7 +696,7 @@ describe("plugin registration", () => {
       const api = mockApi();
       api.runtime.state.resolveStateDir = () => readOnlyDir;
       plugin.register(api as any);
-      await vi.waitFor(() => {}, { timeout: 500 });
+      await vi.waitFor(() => { expect(api.registerGatewayMethod).toHaveBeenCalled(); }, { timeout: 500 });
       await new Promise((r) => setTimeout(r, 50));
 
       // Make files read-only so save will fail silently
@@ -806,6 +807,17 @@ describe("plugin registration", () => {
   // Background service
   // -------------------------------------------------------------------------
   describe("background service", () => {
+    // Spy on PatternEngine.prototype.startSchedule to capture the daily callback
+    // that the service passes in start().
+    async function captureDailyCallback() {
+      const { PatternEngine } = await import("../src/patterns.js");
+      let capturedCallback: (() => Promise<void>) | undefined;
+      vi.spyOn(PatternEngine.prototype, "startSchedule").mockImplementation(function (this: any, _hour: number, cb?: () => Promise<void>) {
+        capturedCallback = cb;
+      });
+      return { getCb: () => capturedCallback };
+    }
+
     it("registerService wires start/stop", async () => {
       const api = await registerPlugin();
       const svc = api._services.find((s) => s.id === "betterclaw-engine");
@@ -815,13 +827,12 @@ describe("plugin registration", () => {
     });
 
     it("start triggers startSchedule (pattern engine runs initial compute)", async () => {
+      const { getCb } = await captureDailyCallback();
       const api = await registerPlugin();
       const svc = api._services.find((s) => s.id === "betterclaw-engine")!;
-      // start() should not throw
       svc.start();
-      // Give PatternEngine.startSchedule a moment to run initial compute
-      await new Promise((r) => setTimeout(r, 50));
-      // Stop to clean up timers
+      // startSchedule should have been called and captured the callback
+      expect(getCb()).toBeTypeOf("function");
       svc.stop();
     });
 
@@ -829,65 +840,66 @@ describe("plugin registration", () => {
       const { initDiagnosticLogger } = await import("../src/diagnostic-logger.js");
       const mockInit = initDiagnosticLogger as ReturnType<typeof vi.fn>;
 
+      const { getCb } = await captureDailyCallback();
       const api = await registerPlugin();
       // Set to free tier (smartMode off)
       await invokeMethod(api, "betterclaw.ping", { tier: "free", smartMode: false });
 
-      // Capture the daily callback by inspecting what startSchedule receives
-      // We need to call the service's start, which calls patternEngine.startSchedule
-      // The daily callback is the second argument to startSchedule
-      // Instead of mocking PatternEngine, let's directly test by triggering the service
-      // and checking that rotate was called after the daily cycle runs.
-      // Since we can't easily trigger the daily timer, let's verify the service wires up correctly
-      // by checking the logger's rotate mock.
+      const svc = api._services.find((s) => s.id === "betterclaw-engine")!;
+      svc.start();
+
       const loggerInstance = mockInit.mock.results[mockInit.mock.results.length - 1].value;
       loggerInstance.rotate.mockClear();
 
-      // The daily callback is embedded in the service start.
-      // We can't easily trigger it without waiting for the timer.
-      // Instead, we verify the structure is correct — the callback is passed to patternEngine.startSchedule.
-      // This is already covered by the registration test.
-      // For a more thorough test, we'd need to mock PatternEngine.prototype.startSchedule.
-      expect(loggerInstance.rotate).toBeDefined();
-    });
+      // Actually invoke the daily callback
+      await getCb()!();
 
-    it("daily callback runs reaction scanning when smartMode on", async () => {
-      const { scanPendingReactions: mockScan } = await import("../src/reaction-scanner.js");
-      (mockScan as ReturnType<typeof vi.fn>).mockClear();
-
-      const api = await registerPlugin();
-      await invokeMethod(api, "betterclaw.ping", { tier: "premium", smartMode: true });
-      // We can't easily trigger the daily callback without mocking the timer.
-      // The important thing is the handler is registered correctly — covered by registration test.
-      expect(mockScan).toBeDefined();
-    });
-
-    it("daily callback skips scanning when smartMode off", async () => {
-      // This tests the conditional logic in the daily callback.
-      // The actual daily callback checks ctxManager.getRuntimeState().smartMode.
-      // When smartMode is false, scanPendingReactions and runLearner should be skipped.
-      // Since we can't easily trigger the timer, we verify the structure.
-      const api = await registerPlugin();
-      await invokeMethod(api, "betterclaw.ping", { tier: "free", smartMode: false });
-      const svc = api._services.find((s) => s.id === "betterclaw-engine")!;
-      svc.start();
-      await new Promise((r) => setTimeout(r, 50));
+      expect(loggerInstance.rotate).toHaveBeenCalledTimes(1);
       svc.stop();
     });
 
-    it("daily callback runs/skips learner based on smartMode", async () => {
+    it("daily callback runs reaction scanning and learner when smartMode on", async () => {
+      const { scanPendingReactions: mockScan } = await import("../src/reaction-scanner.js");
       const { runLearner: mockRunLearner } = await import("../src/learner.js");
+      (mockScan as ReturnType<typeof vi.fn>).mockClear();
       (mockRunLearner as ReturnType<typeof vi.fn>).mockClear();
 
+      const { getCb } = await captureDailyCallback();
       const api = await registerPlugin();
-      await invokeMethod(api, "betterclaw.ping", { tier: "free", smartMode: false });
-      // Start and stop the service — initial compute runs but not the daily callback
+      await invokeMethod(api, "betterclaw.ping", { tier: "premium", smartMode: true });
+
       const svc = api._services.find((s) => s.id === "betterclaw-engine")!;
       svc.start();
-      await new Promise((r) => setTimeout(r, 50));
+
+      // Actually invoke the daily callback
+      await getCb()!();
+
+      expect(mockScan).toHaveBeenCalledTimes(1);
+      expect(mockRunLearner).toHaveBeenCalledTimes(1);
       svc.stop();
-      // runLearner should NOT have been called (only called in daily callback, not on start)
+    });
+
+    it("daily callback skips scanning and learner when smartMode off", async () => {
+      const { scanPendingReactions: mockScan } = await import("../src/reaction-scanner.js");
+      const { runLearner: mockRunLearner } = await import("../src/learner.js");
+      (mockScan as ReturnType<typeof vi.fn>).mockClear();
+      (mockRunLearner as ReturnType<typeof vi.fn>).mockClear();
+
+      const { getCb } = await captureDailyCallback();
+      const api = await registerPlugin();
+      await invokeMethod(api, "betterclaw.ping", { tier: "free", smartMode: false });
+
+      const svc = api._services.find((s) => s.id === "betterclaw-engine")!;
+      svc.start();
+
+      // Actually invoke the daily callback
+      await getCb()!();
+
+      // Log rotation still runs (verified in separate test)
+      // But scanning and learner should be skipped
+      expect(mockScan).not.toHaveBeenCalled();
       expect(mockRunLearner).not.toHaveBeenCalled();
+      svc.stop();
     });
   });
 

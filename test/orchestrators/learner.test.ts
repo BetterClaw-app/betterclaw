@@ -15,7 +15,7 @@ function makeSubagentApi(responseContent: string) {
     runtime: {
       subagent: {
         run: vi.fn(async () => ({ runId: "run-1" })),
-        waitForRun: vi.fn(async () => {}),
+        waitForRun: vi.fn(async () => ({ status: "completed" })),
         getSessionMessages: vi.fn(async () => ({
           messages: [
             { role: "user", content: "prompt" },
@@ -80,7 +80,6 @@ describe("runLearner", () => {
   beforeEach(async () => {
     stateDir = await makeTmpDir("learner-state-");
     workspaceDir = await makeTmpDir("learner-ws-");
-    vi.resetAllMocks();
   });
 
   it("happy path: reads data, calls subagent, saves profile to disk", async () => {

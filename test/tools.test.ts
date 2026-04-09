@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { createCheckTierTool } from "../src/tools/check-tier.js";
+import { makeTmpDir } from "./helpers.js";
 import { createGetContextTool } from "../src/tools/get-context.js";
 import { ContextManager } from "../src/context.js";
 
@@ -78,7 +78,7 @@ describe("get_context tool", () => {
   let ctx: ContextManager;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-tool-"));
+    tmpDir = await makeTmpDir("betterclaw-tool-");
     ctx = new ContextManager(tmpDir);
   });
 
@@ -134,7 +134,7 @@ describe("get_context tool", () => {
 
 describe("createGetContextTool output shape", () => {
   it("premium + smartMode + battery snapshot returns all expected top-level keys", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-shape-"));
+    const tmpDir = await makeTmpDir("betterclaw-shape-");
     const ctx = new ContextManager(tmpDir);
     ctx.setRuntimeState({ tier: "premium", smartMode: true });
     const recentTs = Date.now() / 1000 - 10;
@@ -161,7 +161,7 @@ describe("get_context stale data hiding (deviceFieldOrPointer)", () => {
   let ctx: ContextManager;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-dfop-"));
+    tmpDir = await makeTmpDir("betterclaw-dfop-");
     ctx = new ContextManager(tmpDir);
     ctx.setRuntimeState({ tier: "premium", smartMode: true });
   });
@@ -258,7 +258,7 @@ describe("get_context stale data hiding (premium)", () => {
   let ctx: ContextManager;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-stale-"));
+    tmpDir = await makeTmpDir("betterclaw-stale-");
     ctx = new ContextManager(tmpDir);
     ctx.setRuntimeState({ tier: "premium", smartMode: true });
   });

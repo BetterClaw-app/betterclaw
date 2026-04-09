@@ -12,7 +12,8 @@ export function mockLogger(): PluginModuleLogger & { info: ReturnType<typeof vi.
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
-/** Create a temp directory for test isolation. Call in beforeEach. */
+/** Create a temp directory for test isolation. Dirs are auto-cleaned by OS in /tmp.
+ *  For explicit cleanup, use `afterEach(() => fs.rm(dir, { recursive: true, force: true }).catch(() => {}))`. */
 export async function makeTmpDir(prefix: string = "betterclaw-test-"): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }

@@ -2,8 +2,36 @@ import { describe, it, expect } from "vitest";
 import { BETTERCLAW_COMMANDS, mergeAllowCommands, mergeAlsoAllow } from "../src/cli.js";
 
 describe("CLI setup", () => {
-  it("has 23 commands", () => {
-    expect(BETTERCLAW_COMMANDS).toHaveLength(23);
+  it("exports a non-empty commands list", () => {
+    expect(BETTERCLAW_COMMANDS.length).toBeGreaterThan(0);
+    // Snapshot the count to catch accidental additions/removals
+    expect(BETTERCLAW_COMMANDS).toMatchInlineSnapshot(`
+      [
+        "clipboard.write",
+        "device.battery",
+        "geofence.add",
+        "geofence.list",
+        "geofence.remove",
+        "health.distance",
+        "health.heartrate",
+        "health.hrv",
+        "health.restinghr",
+        "health.sleep",
+        "health.steps",
+        "health.summary",
+        "health.workouts",
+        "location.get",
+        "shortcuts.install",
+        "shortcuts.run",
+        "subscribe.add",
+        "subscribe.list",
+        "subscribe.pause",
+        "subscribe.remove",
+        "subscribe.resume",
+        "system.capabilities",
+        "system.notify",
+      ]
+    `);
   });
 
   it("merges without duplicates", () => {
@@ -26,7 +54,8 @@ describe("CLI setup", () => {
     const existing = ["system.notify", "device.battery"];
     const merged = mergeAllowCommands(existing, BETTERCLAW_COMMANDS);
     const added = merged.length - existing.length;
-    expect(added).toBe(21); // 23 total - 2 already exist
+    // All BetterClaw commands minus the 2 that already exist
+    expect(added).toBe(BETTERCLAW_COMMANDS.length - 2);
   });
 });
 
