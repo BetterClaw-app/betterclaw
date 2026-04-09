@@ -176,7 +176,7 @@ describe("learner error paths", () => {
       api,
     };
 
-    // runLearner should not throw — the error is caught inside the try/finally
+    // runLearner uses try/finally (no catch) — error propagates but deleteSession still runs
     await expect(runLearner(deps)).rejects.toThrow("subagent crashed");
 
     // deleteSession should have been called at least twice (pre-cleanup + finally)
