@@ -9,6 +9,8 @@ import { EventLog } from "../../src/events.js";
 import { RulesEngine } from "../../src/filter.js";
 import { ReactionTracker } from "../../src/reactions.js";
 import type { DeviceEvent, PluginConfig } from "../../src/types.js";
+import { triageEvent } from "../../src/triage.js";
+import { requireEntitlement } from "../../src/jwt.js";
 
 vi.mock("../../src/jwt.js", () => ({
   requireEntitlement: vi.fn(() => null),
@@ -53,6 +55,16 @@ const mockApi = {
     },
   },
 } as unknown as PipelineDeps["api"];
+
+function makeEvent(overrides?: Partial<DeviceEvent>): DeviceEvent {
+  return {
+    subscriptionId: "default.daily-health",
+    source: "health.summary",
+    data: { stepsToday: 5000 },
+    firedAt: Date.now() / 1000,
+    ...overrides,
+  };
+}
 
 function makeBatteryCriticalEvent(): DeviceEvent {
   return {
@@ -135,6 +147,98 @@ describe("pipeline integration", () => {
     expect(entries[0].decision).toBe("stored");
     expect(entries[0].reason).toContain("smartMode off");
 
+    expect(mockApi.runtime.subagent.run).not.toHaveBeenCalled();
+  });
+
+  it("entitlement check failure: event blocked when requireEntitlement returns error", async () => {
+    const deps = await makeDeps(tmpDir);
+    deps.context.setRuntimeState({ tier: "premium", smartMode: true });
+    (requireEntitlement as ReturnType<typeof vi.fn>).mockReturnValueOnce("no valid JWT");
+
+    await processEvent(deps, makeEvent());
+
+    const entries = await deps.events.readRecent(10);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].decision).toBe("blocked");
+    expect(entries[0].reason).toContain("no premium entitlement");
+    expect(mockApi.runtime.subagent.run).not.toHaveBeenCalled();
+  });
+
+  it("triage returns drop: ambiguous event dropped after LLM says no", async () => {
+    const deps = await makeDeps(tmpDir);
+    deps.context.setRuntimeState({ tier: "premium", smartMode: true });
+    vi.spyOn(deps.rules, "evaluate").mockReturnValue({ action: "ambiguous", reason: "no rule matched" });
+    (triageEvent as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ push: false, reason: "low relevance" });
+
+    await processEvent(deps, makeEvent());
+
+    const entries = await deps.events.readRecent(10);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].decision).toBe("drop");
+    expect(entries[0].reason).toContain("triage:");
+    expect(entries[0].reason).toContain("low relevance");
+    expect(mockApi.runtime.subagent.run).not.toHaveBeenCalled();
+  });
+
+  it("triage returns push: ambiguous event pushed after LLM says yes", async () => {
+    const deps = await makeDeps(tmpDir);
+    deps.context.setRuntimeState({ tier: "premium", smartMode: true });
+    vi.spyOn(deps.rules, "evaluate").mockReturnValue({ action: "ambiguous", reason: "no rule matched" });
+    (triageEvent as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ push: true, reason: "user cares about health" });
+
+    await processEvent(deps, makeEvent());
+
+    const entries = await deps.events.readRecent(10);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].decision).toBe("push");
+    expect(entries[0].reason).toContain("triage:");
+    expect(entries[0].reason).toContain("user cares about health");
+    expect(mockApi.runtime.subagent.run).toHaveBeenCalledOnce();
+  });
+
+  it("free tier: health event stored without push or triage", async () => {
+    const deps = await makeDeps(tmpDir);
+    deps.context.setRuntimeState({ tier: "free", smartMode: false });
+    const triageSpy = triageEvent as ReturnType<typeof vi.fn>;
+
+    await processEvent(deps, makeEvent());
+
+    const entries = await deps.events.readRecent(10);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].decision).toBe("free_stored");
+    expect(entries[0].reason).toContain("free tier");
+    expect(triageSpy).not.toHaveBeenCalled();
+    expect(mockApi.runtime.subagent.run).not.toHaveBeenCalled();
+  });
+
+  it("rules engine dedup: event dropped without calling triage", async () => {
+    const deps = await makeDeps(tmpDir);
+    deps.context.setRuntimeState({ tier: "premium", smartMode: true });
+    vi.spyOn(deps.rules, "evaluate").mockReturnValue({ action: "drop", reason: "dedup: default.daily-health fired 300s ago (cooldown: 1800s)" });
+    const triageSpy = triageEvent as ReturnType<typeof vi.fn>;
+
+    await processEvent(deps, makeEvent());
+
+    const entries = await deps.events.readRecent(10);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].decision).toBe("drop");
+    expect(entries[0].reason).toContain("dedup:");
+    expect(triageSpy).not.toHaveBeenCalled();
+    expect(mockApi.runtime.subagent.run).not.toHaveBeenCalled();
+  });
+
+  it("smartMode off with health event: stored without triage or push", async () => {
+    const deps = await makeDeps(tmpDir);
+    deps.context.setRuntimeState({ tier: "premium", smartMode: false });
+    const triageSpy = triageEvent as ReturnType<typeof vi.fn>;
+
+    await processEvent(deps, makeEvent());
+
+    const entries = await deps.events.readRecent(10);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].decision).toBe("stored");
+    expect(entries[0].reason).toContain("smartMode off");
+    expect(triageSpy).not.toHaveBeenCalled();
     expect(mockApi.runtime.subagent.run).not.toHaveBeenCalled();
   });
 });
