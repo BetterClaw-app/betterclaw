@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { PatternEngine, emptyPatterns } from "../src/patterns.js";
-import { ContextManager } from "../src/context.js";
-import { EventLog } from "../src/events.js";
+import { PatternEngine, emptyPatterns } from "../../src/patterns.js";
+import { ContextManager } from "../../src/context.js";
+import { EventLog } from "../../src/events.js";
 
 describe("PatternEngine", () => {
   it("computes empty patterns from empty log", async () => {

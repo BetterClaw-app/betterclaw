@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { ReactionTracker } from "../src/reactions.js";
-import type { ReactionEntry } from "../src/types.js";
+import { ReactionTracker } from "../../src/reactions.js";
+import type { ReactionEntry } from "../../src/types.js";
 
 describe("ReactionTracker", () => {
   let tracker: ReactionTracker;
