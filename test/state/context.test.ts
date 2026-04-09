@@ -369,3 +369,148 @@ describe("ContextManager.applySnapshot", () => {
     expect(state.device.health!.updatedAt).toBeGreaterThan(0);
   });
 });
+
+describe("ContextManager.getDataAge", () => {
+  let tmpDir: string;
+  let ctx: ContextManager;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-dataage-"));
+    ctx = new ContextManager(tmpDir);
+  });
+
+  it("returns null for all fields when nothing set", () => {
+    const age = ctx.getDataAge();
+    expect(age.battery).toBeNull();
+    expect(age.location).toBeNull();
+    expect(age.health).toBeNull();
+  });
+
+  it("near-zero age for freshly set battery", () => {
+    ctx.updateFromEvent({
+      subscriptionId: "test",
+      source: "device.battery",
+      data: { level: 0.8 },
+      firedAt: Date.now() / 1000,
+    });
+    const age = ctx.getDataAge();
+    expect(age.battery).not.toBeNull();
+    expect(age.battery!).toBeLessThan(5);
+    expect(age.location).toBeNull();
+    expect(age.health).toBeNull();
+  });
+
+  it("near-zero age for freshly set location", () => {
+    ctx.updateFromEvent({
+      subscriptionId: "geo",
+      source: "geofence.triggered",
+      data: { type: 1, latitude: 48.1, longitude: 11.5 },
+      metadata: { zoneName: "Home" },
+      firedAt: Date.now() / 1000,
+    });
+    const age = ctx.getDataAge();
+    expect(age.location).not.toBeNull();
+    expect(age.location!).toBeLessThan(5);
+    expect(age.battery).toBeNull();
+  });
+
+  it("near-zero age for freshly set health", () => {
+    ctx.updateFromEvent({
+      subscriptionId: "health",
+      source: "health.summary",
+      data: { stepsToday: 5000 },
+      firedAt: Date.now() / 1000,
+    });
+    const age = ctx.getDataAge();
+    expect(age.health).not.toBeNull();
+    expect(age.health!).toBeLessThan(5);
+    expect(age.battery).toBeNull();
+  });
+
+  it("correct age based on timestamp parameter (10 min ago)", () => {
+    const tenMinAgo = Date.now() / 1000 - 600;
+    ctx.updateFromEvent({
+      subscriptionId: "test",
+      source: "device.battery",
+      data: { level: 0.5 },
+      firedAt: tenMinAgo,
+    });
+    const age = ctx.getDataAge();
+    expect(age.battery).not.toBeNull();
+    // Should be approximately 600s (allow some tolerance for test execution time)
+    expect(age.battery!).toBeGreaterThanOrEqual(599);
+    expect(age.battery!).toBeLessThan(610);
+  });
+});
+
+describe("ContextManager.updateFromEvent daily counter reset", () => {
+  let tmpDir: string;
+  let ctx: ContextManager;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-dailyreset-"));
+    ctx = new ContextManager(tmpDir);
+  });
+
+  it("resets eventsToday and pushesToday at midnight crossing", () => {
+    // Day 1: two events + a push
+    ctx.updateFromEvent({
+      subscriptionId: "test",
+      source: "device.battery",
+      data: { level: 0.5 },
+      firedAt: 1740000000,
+    });
+    ctx.recordPush();
+    ctx.updateFromEvent({
+      subscriptionId: "test",
+      source: "device.battery",
+      data: { level: 0.4 },
+      firedAt: 1740000100,
+    });
+    expect(ctx.get().meta.eventsToday).toBe(2);
+    expect(ctx.get().meta.pushesToday).toBe(1);
+
+    // Day 2: next-day event triggers reset
+    ctx.updateFromEvent({
+      subscriptionId: "test",
+      source: "device.battery",
+      data: { level: 0.3 },
+      firedAt: 1740090000, // ~25 hours later
+    });
+    expect(ctx.get().meta.eventsToday).toBe(1);
+    expect(ctx.get().meta.pushesToday).toBe(0);
+  });
+
+  it("does not reset when lastEventAt is 0 (first event ever)", () => {
+    // First event ever — lastEventAt starts at 0, should NOT reset
+    ctx.updateFromEvent({
+      subscriptionId: "test",
+      source: "device.battery",
+      data: { level: 0.9 },
+      firedAt: 1740000000,
+    });
+    expect(ctx.get().meta.eventsToday).toBe(1);
+  });
+
+  it("does not reset for same-day events", () => {
+    ctx.updateFromEvent({
+      subscriptionId: "test",
+      source: "device.battery",
+      data: { level: 0.5 },
+      firedAt: 1740000000,
+    });
+    ctx.updateFromEvent({
+      subscriptionId: "test",
+      source: "device.battery",
+      data: { level: 0.4 },
+      firedAt: 1740000100, // 100 seconds later, same day
+    });
+    ctx.updateFromEvent({
+      subscriptionId: "test",
+      source: "device.battery",
+      data: { level: 0.3 },
+      firedAt: 1740000200, // 200 seconds later, same day
+    });
+    expect(ctx.get().meta.eventsToday).toBe(3);
+  });
+});
