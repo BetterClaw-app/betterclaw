@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import * as fs from "node:fs/promises";
-import * as os from "node:os";
 import * as path from "node:path";
 import { EventLog } from "../../src/events.js";
+import { makeTmpDir } from "../helpers.js";
 import type { EventLogEntry } from "../../src/types.js";
 
 describe("EventLog", () => {
@@ -10,7 +10,7 @@ describe("EventLog", () => {
   let log: EventLog;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-events-"));
+    tmpDir = await makeTmpDir("betterclaw-events-");
     log = new EventLog(tmpDir);
   });
 
@@ -75,7 +75,7 @@ describe("EventLog.readRecent", () => {
   let log: EventLog;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-ctx-rpc-"));
+    tmpDir = await makeTmpDir("betterclaw-ctx-rpc-");
     log = new EventLog(tmpDir);
   });
 
@@ -122,7 +122,7 @@ describe("EventLog.rotate", () => {
   let log: EventLog;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-rotate-"));
+    tmpDir = await makeTmpDir("betterclaw-rotate-");
     log = new EventLog(tmpDir);
   });
 
@@ -154,7 +154,7 @@ describe("EventLog.count", () => {
   let log: EventLog;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-count-"));
+    tmpDir = await makeTmpDir("betterclaw-count-");
     log = new EventLog(tmpDir);
   });
 

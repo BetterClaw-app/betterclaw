@@ -10,6 +10,9 @@ import { ReactionTracker } from "../src/reactions.js";
 import { makeTmpDir, mockLogger } from "./helpers.js";
 import type { DeviceEvent, PluginConfig } from "../src/types.js";
 
+// Note: diagnostic-logger.js is NOT mocked here — dlog defaults to a NOOP
+// singleton (src/diagnostic-logger.ts:24), so unmocked usage is safe.
+
 // Mock triage + learner + jwt for pipeline error tests
 vi.mock("../src/triage.js", () => ({
   triageEvent: vi.fn(async () => ({ push: true, reason: "mocked triage" })),
@@ -50,7 +53,7 @@ function makeMockApi(overrides?: { runRejects?: boolean }) {
           ? vi.fn(async () => { throw new Error("subagent unavailable"); })
           : vi.fn(async () => ({ runId: "mock-run-id" })),
         deleteSession: vi.fn(async () => {}),
-        waitForRun: vi.fn(async () => {}),
+        waitForRun: vi.fn(async () => ({ status: "completed" })),
         getSessionMessages: vi.fn(async () => ({ messages: [] })),
       },
       modelAuth: {
@@ -84,7 +87,6 @@ describe("pipeline error paths", () => {
 
   beforeEach(async () => {
     tmpDir = await makeTmpDir("error-pipeline-");
-    vi.clearAllMocks();
   });
 
   it("pushToAgent failure logs event as drop", async () => {
@@ -141,7 +143,6 @@ describe("learner error paths", () => {
 
   beforeEach(async () => {
     tmpDir = await makeTmpDir("error-learner-");
-    vi.clearAllMocks();
   });
 
   it("deleteSession is called even when subagent.run throws", async () => {
@@ -154,7 +155,7 @@ describe("learner error paths", () => {
         subagent: {
           run: vi.fn(async () => { throw new Error("subagent crashed"); }),
           deleteSession,
-          waitForRun: vi.fn(async () => {}),
+          waitForRun: vi.fn(async () => ({ status: "completed" })),
           getSessionMessages: vi.fn(async () => ({ messages: [] })),
         },
         modelAuth: {
@@ -192,7 +193,7 @@ describe("learner error paths", () => {
         subagent: {
           run: vi.fn(async () => ({ runId: "mock-run-id" })),
           deleteSession: vi.fn(async () => {}),
-          waitForRun: vi.fn(async () => {}),
+          waitForRun: vi.fn(async () => ({ status: "completed" })),
           getSessionMessages: vi.fn(async () => ({
             messages: [
               { role: "assistant", content: JSON.stringify({ summary: "test user", interruptionTolerance: "normal" }) },
@@ -252,7 +253,6 @@ describe("scanPendingReactions API failure", () => {
 
   beforeEach(async () => {
     tmpDir = await makeTmpDir("error-scanner-");
-    vi.clearAllMocks();
   });
 
   it("returns gracefully when getSessionMessages throws", async () => {
@@ -274,7 +274,7 @@ describe("scanPendingReactions API failure", () => {
           getSessionMessages: vi.fn(async () => { throw new Error("API unavailable"); }),
           run: vi.fn(async () => ({ runId: "mock" })),
           deleteSession: vi.fn(async () => {}),
-          waitForRun: vi.fn(async () => {}),
+          waitForRun: vi.fn(async () => ({ status: "completed" })),
         },
       },
     } as unknown as ScanDeps["api"];

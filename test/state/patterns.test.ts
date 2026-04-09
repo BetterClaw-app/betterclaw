@@ -1,7 +1,4 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
 import { PatternEngine, emptyPatterns } from "../../src/patterns.js";
 import { ContextManager } from "../../src/context.js";
 import { EventLog } from "../../src/events.js";
@@ -9,7 +6,7 @@ import { makeTmpDir } from "../helpers.js";
 
 describe("PatternEngine", () => {
   it("computes empty patterns from empty log", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-patterns-"));
+    const tmpDir = await makeTmpDir("betterclaw-patterns-");
     const ctx = new ContextManager(tmpDir);
     const log = new EventLog(tmpDir);
     const engine = new PatternEngine(ctx, log, 14);
@@ -21,7 +18,7 @@ describe("PatternEngine", () => {
   });
 
   it("computes event stats from log entries", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-patterns-"));
+    const tmpDir = await makeTmpDir("betterclaw-patterns-");
     const ctx = new ContextManager(tmpDir);
     const log = new EventLog(tmpDir);
 
@@ -48,7 +45,7 @@ describe("PatternEngine", () => {
   });
 
   it("computes sleep and resting HR trends", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-trends-"));
+    const tmpDir = await makeTmpDir("betterclaw-trends-");
     const ctx = new ContextManager(tmpDir);
     const log = new EventLog(tmpDir);
 
@@ -83,7 +80,7 @@ describe("PatternEngine", () => {
   });
 
   it("computes location routines with zone names from metadata", async () => {
-    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-patterns-"));
+    const tmpDir = await makeTmpDir("betterclaw-patterns-");
     const ctx = new ContextManager(tmpDir);
     const log = new EventLog(tmpDir);
 

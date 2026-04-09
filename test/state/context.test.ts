@@ -1,16 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
 import { ContextManager } from "../../src/context.js";
 import type { DeviceConfig, DeviceEvent, RuntimeState } from "../../src/types.js";
+import { makeTmpDir } from "../helpers.js";
 
 describe("ContextManager", () => {
   let tmpDir: string;
   let ctx: ContextManager;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-test-"));
+    tmpDir = await makeTmpDir("betterclaw-test-");
     ctx = new ContextManager(tmpDir);
   });
 
@@ -238,7 +236,7 @@ describe("ContextManager activity state", () => {
   let ctx: ContextManager;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-ctx-rpc-"));
+    tmpDir = await makeTmpDir("betterclaw-ctx-rpc-");
     ctx = new ContextManager(tmpDir);
   });
 
@@ -282,7 +280,7 @@ describe("ContextManager.applySnapshot", () => {
   let ctx: ContextManager;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-snapshot-"));
+    tmpDir = await makeTmpDir("betterclaw-snapshot-");
     ctx = new ContextManager(tmpDir);
   });
 
@@ -375,7 +373,7 @@ describe("ContextManager.getDataAge", () => {
   let ctx: ContextManager;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-dataage-"));
+    tmpDir = await makeTmpDir("betterclaw-dataage-");
     ctx = new ContextManager(tmpDir);
   });
 
@@ -448,7 +446,7 @@ describe("ContextManager.updateFromEvent daily counter reset", () => {
   let ctx: ContextManager;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-dailyreset-"));
+    tmpDir = await makeTmpDir("betterclaw-dailyreset-");
     ctx = new ContextManager(tmpDir);
   });
 

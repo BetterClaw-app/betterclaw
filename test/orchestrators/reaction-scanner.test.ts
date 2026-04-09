@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { scanPendingReactions } from "../../src/reaction-scanner.js";
 import type { ScanDeps } from "../../src/reaction-scanner.js";
 import type { ReactionEntry } from "../../src/types.js";
@@ -35,7 +35,7 @@ function makeScanDeps(
       runtime: {
         subagent: {
           run: vi.fn(async () => ({ runId: "classify-run" })),
-          waitForRun: vi.fn(async () => {}),
+          waitForRun: vi.fn(async () => ({ status: "completed" })),
           getSessionMessages: vi.fn(async () => {
             getSessionCallCount++;
             if (getSessionCallCount === 1) {
@@ -63,10 +63,6 @@ function makeScanDeps(
 }
 
 describe("scanPendingReactions", () => {
-  beforeEach(() => {
-    vi.resetAllMocks();
-  });
-
   it("returns early when no pending reactions", async () => {
     const deps = makeScanDeps([], []);
 
@@ -144,31 +140,26 @@ describe("scanPendingReactions", () => {
       { role: "user", content: "Thanks", timestamp: pushedAt + 105 },
     ];
 
-    let getSessionCallCount = 0;
+    const mockRun = vi.fn()
+      .mockRejectedValueOnce(new Error("subagent crashed"))
+      .mockResolvedValueOnce({ runId: "classify-run-2" });
+
+    const mockGetSessionMessages = vi.fn()
+      .mockResolvedValueOnce({ messages: transcript })
+      .mockResolvedValueOnce({
+        messages: [
+          { role: "assistant", content: '{"status":"ignored","reason":"user changed topic"}' },
+        ],
+      });
+
     const deps: ScanDeps = {
       api: {
         logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
         runtime: {
           subagent: {
-            run: vi.fn(async () => {
-              // First classification throws, second succeeds
-              if ((deps.api.runtime.subagent.run as ReturnType<typeof vi.fn>).mock.calls.length === 1) {
-                throw new Error("subagent crashed");
-              }
-              return { runId: "classify-run-2" };
-            }),
-            waitForRun: vi.fn(async () => {}),
-            getSessionMessages: vi.fn(async () => {
-              getSessionCallCount++;
-              if (getSessionCallCount === 1) {
-                return { messages: transcript };
-              }
-              return {
-                messages: [
-                  { role: "assistant", content: '{"status":"ignored","reason":"user changed topic"}' },
-                ],
-              };
-            }),
+            run: mockRun,
+            waitForRun: vi.fn(async () => ({ status: "completed" })),
+            getSessionMessages: mockGetSessionMessages,
             deleteSession: vi.fn(async () => {}),
           },
         },

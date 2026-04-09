@@ -1,9 +1,7 @@
 // Tests for prompt construction, response parsing, and small helpers used by orchestrators.
 import { describe, it, expect, beforeEach } from "vitest";
-import * as fs from "node:fs/promises";
-import * as os from "node:os";
-import * as path from "node:path";
 import { buildTriagePrompt, parseTriageResponse } from "../src/triage.js";
+import { makeTmpDir } from "./helpers.js";
 import { buildLearnerPrompt, parseTriageProfile } from "../src/learner.js";
 import { findPushInMessages, buildClassificationPrompt, parseClassificationResponse, extractText, isBetterClawPush } from "../src/reaction-scanner.js";
 import { errorMessage } from "../src/types.js";
@@ -16,7 +14,7 @@ describe("triage", () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "betterclaw-triage-"));
+    tmpDir = await makeTmpDir("betterclaw-triage-");
   });
 
   const profile: TriageProfile = {
