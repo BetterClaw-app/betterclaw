@@ -5,7 +5,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { buildTriagePrompt, parseTriageResponse } from "../src/triage.js";
 import { buildLearnerPrompt, parseTriageProfile } from "../src/learner.js";
-import { findPushInMessages, buildClassificationPrompt } from "../src/reaction-scanner.js";
+import { findPushInMessages, buildClassificationPrompt, parseClassificationResponse, extractText, isBetterClawPush } from "../src/reaction-scanner.js";
+import { errorMessage } from "../src/types.js";
 import type { DeviceEvent, TriageProfile, EventLogEntry, ReactionEntry } from "../src/types.js";
 import { ContextManager } from "../src/context.js";
 
@@ -103,6 +104,45 @@ describe("triage", () => {
       expect(result.push).toBe(false);
       expect(result.reason).toContain("failed to parse");
     });
+
+    it("returns fallback on empty string", () => {
+      const result = parseTriageResponse("");
+      expect(result.push).toBe(false);
+      expect(result.reason).toBe("failed to parse triage response \u2014 defaulting to drop");
+    });
+
+    it("handles partial JSON (truncated)", () => {
+      const result = parseTriageResponse('{"push": true, "reas');
+      expect(result.push).toBe(false);
+      expect(result.reason).toContain("failed to parse");
+    });
+
+    it("strips nested markdown fences", () => {
+      const result = parseTriageResponse('```json\n{"push": true, "reason": "important event"}\n```');
+      expect(result.push).toBe(true);
+      expect(result.reason).toBe("important event");
+    });
+
+    it("ignores extra fields gracefully", () => {
+      const result = parseTriageResponse('{"push": true, "reason": "test", "extra": 42, "nested": {"a": 1}}');
+      expect(result.push).toBe(true);
+      expect(result.reason).toBe("test");
+    });
+
+    it("treats non-true push value as false", () => {
+      const result = parseTriageResponse('{"push": "yes", "reason": "test"}');
+      expect(result.push).toBe(false);
+    });
+
+    it("maps valid priority values", () => {
+      const result = parseTriageResponse('{"push": true, "reason": "test", "priority": "high"}');
+      expect(result.priority).toBe("high");
+    });
+
+    it("drops invalid priority values", () => {
+      const result = parseTriageResponse('{"push": true, "reason": "test", "priority": "urgent"}');
+      expect(result.priority).toBeUndefined();
+    });
   });
 });
 
@@ -178,6 +218,63 @@ describe("learner", () => {
       });
       expect(prompt).toContain("vacation");
     });
+
+    it("includes 'No events' section when recentEvents is empty", () => {
+      const prompt = buildLearnerPrompt({
+        memorySummary: null,
+        recentEvents: [],
+        reactions: [],
+        previousProfile: null,
+        patternsJson: "{}",
+      });
+      expect(prompt).toContain("No events in the last 24 hours");
+    });
+
+    it("includes 'No push reaction data' section when reactions is empty", () => {
+      const prompt = buildLearnerPrompt({
+        memorySummary: "User was at home",
+        recentEvents: [],
+        reactions: [],
+        previousProfile: null,
+        patternsJson: "{}",
+      });
+      expect(prompt).toContain("No push reaction data available");
+    });
+
+    it("includes 'No previous profile' section on first run", () => {
+      const prompt = buildLearnerPrompt({
+        memorySummary: null,
+        recentEvents: [],
+        reactions: [],
+        previousProfile: null,
+        patternsJson: "{}",
+      });
+      expect(prompt).toContain("No previous profile");
+      expect(prompt).toContain("first analysis");
+    });
+
+    it("includes previous profile summary when present", () => {
+      const prompt = buildLearnerPrompt({
+        memorySummary: null,
+        recentEvents: [],
+        reactions: [],
+        previousProfile: { summary: "Likes battery alerts", interruptionTolerance: "high", computedAt: 1000 },
+        patternsJson: "{}",
+      });
+      expect(prompt).toContain("Likes battery alerts");
+      expect(prompt).toContain("high");
+    });
+
+    it("includes memory summary when present", () => {
+      const prompt = buildLearnerPrompt({
+        memorySummary: "User went to the gym at 7am",
+        recentEvents: [],
+        reactions: [],
+        previousProfile: null,
+        patternsJson: "{}",
+      });
+      expect(prompt).toContain("User went to the gym at 7am");
+    });
   });
 
   describe("parseTriageProfile", () => {
@@ -215,6 +312,35 @@ describe("learner", () => {
     it("returns null on malformed JSON", () => {
       const result = parseTriageProfile("not json");
       expect(result).toBeNull();
+    });
+
+    it("returns null on empty string", () => {
+      expect(parseTriageProfile("")).toBeNull();
+    });
+
+    it("returns null on null-like input", () => {
+      expect(parseTriageProfile("null")).toBeNull();
+    });
+
+    it("returns null when summary is missing", () => {
+      expect(parseTriageProfile('{"interruptionTolerance": "normal"}')).toBeNull();
+    });
+
+    it("returns null when interruptionTolerance is missing", () => {
+      expect(parseTriageProfile('{"summary": "test user"}')).toBeNull();
+    });
+
+    it("defaults invalid tolerance to normal", () => {
+      const result = parseTriageProfile('{"summary": "test", "interruptionTolerance": "extreme"}');
+      expect(result).not.toBeNull();
+      expect(result!.interruptionTolerance).toBe("normal");
+    });
+
+    it("uses current time when computedAt is missing", () => {
+      const before = Date.now() / 1000;
+      const result = parseTriageProfile('{"summary": "test", "interruptionTolerance": "low"}');
+      expect(result).not.toBeNull();
+      expect(result!.computedAt).toBeGreaterThanOrEqual(before);
     });
   });
 });
@@ -273,5 +399,135 @@ describe("buildClassificationPrompt", () => {
     expect(prompt).toContain("engaged");
     expect(prompt).toContain("ignored");
     expect(prompt).toContain("unclear");
+  });
+});
+
+describe("parseClassificationResponse", () => {
+  it("parses valid JSON with classification", () => {
+    const result = parseClassificationResponse('{"status": "engaged", "reason": "user replied"}');
+    expect(result.status).toBe("engaged");
+    expect(result.reason).toBe("user replied");
+  });
+
+  it("returns unclear on malformed JSON", () => {
+    const result = parseClassificationResponse("not json at all");
+    expect(result.status).toBe("unclear");
+    expect(result.reason).toBe("failed to parse LLM response");
+  });
+
+  it("returns unclear when status field is missing", () => {
+    const result = parseClassificationResponse('{"reason": "no status here"}');
+    expect(result.status).toBe("unclear");
+    expect(result.reason).toBe("no status here");
+  });
+
+  it("maps invalid status value to unclear", () => {
+    const result = parseClassificationResponse('{"status": "bananas", "reason": "test"}');
+    expect(result.status).toBe("unclear");
+    expect(result.reason).toBe("test");
+  });
+
+  it("strips markdown code fences before parsing", () => {
+    const result = parseClassificationResponse('```json\n{"status": "ignored", "reason": "no reply"}\n```');
+    expect(result.status).toBe("ignored");
+    expect(result.reason).toBe("no reply");
+  });
+
+  it("defaults reason when reason field is not a string", () => {
+    const result = parseClassificationResponse('{"status": "engaged", "reason": 42}');
+    expect(result.status).toBe("engaged");
+    expect(result.reason).toBe("no reason provided");
+  });
+});
+
+describe("errorMessage", () => {
+  it("extracts message from Error instance", () => {
+    expect(errorMessage(new Error("boom"))).toBe("boom");
+  });
+
+  it("returns string input as-is", () => {
+    expect(errorMessage("oops")).toBe("oops");
+  });
+
+  it("stringifies plain object via String()", () => {
+    expect(errorMessage({ code: 42 })).toBe("[object Object]");
+  });
+
+  it("converts null to 'null'", () => {
+    expect(errorMessage(null)).toBe("null");
+  });
+
+  it("converts undefined to 'undefined'", () => {
+    expect(errorMessage(undefined)).toBe("undefined");
+  });
+
+  it("converts number to string", () => {
+    expect(errorMessage(123)).toBe("123");
+  });
+});
+
+describe("extractText", () => {
+  it("returns string content directly", () => {
+    expect(extractText("hello world")).toBe("hello world");
+  });
+
+  it("joins text blocks from content-block array", () => {
+    const blocks = [
+      { type: "text", text: "block1" },
+      { type: "text", text: "block2" },
+    ];
+    expect(extractText(blocks)).toBe("block1block2");
+  });
+
+  it("filters out non-text blocks", () => {
+    const blocks = [
+      { type: "text", text: "keep" },
+      { type: "image", url: "http://example.com" },
+      { type: "text", text: "this" },
+    ];
+    expect(extractText(blocks)).toBe("keepthis");
+  });
+
+  it("returns empty string for number input", () => {
+    expect(extractText(42)).toBe("");
+  });
+
+  it("returns empty string for null input", () => {
+    expect(extractText(null)).toBe("");
+  });
+
+  it("returns empty string for undefined input", () => {
+    expect(extractText(undefined)).toBe("");
+  });
+
+  it("handles block with missing text property", () => {
+    const blocks = [{ type: "text" }];
+    expect(extractText(blocks)).toBe("");
+  });
+});
+
+describe("isBetterClawPush", () => {
+  it("returns true when text contains BetterClaw device event marker", () => {
+    expect(isBetterClawPush("[BetterClaw device event — processed by context plugin]\n\nBattery at 15%")).toBe(true);
+  });
+
+  it("returns false for debug prefix (does not contain the marker)", () => {
+    expect(isBetterClawPush("[DEBUG test event fired manually from BetterClaw iOS debug menu]")).toBe(false);
+  });
+
+  it("returns true for partial marker presence", () => {
+    expect(isBetterClawPush("prefix [BetterClaw device event suffix")).toBe(true);
+  });
+
+  it("returns false for non-matching message", () => {
+    expect(isBetterClawPush("regular user message about battery")).toBe(false);
+  });
+
+  it("returns false for empty string", () => {
+    expect(isBetterClawPush("")).toBe(false);
+  });
+
+  it("returns false for similar but not exact marker", () => {
+    expect(isBetterClawPush("[BetterClaw notification")).toBe(false);
   });
 });
