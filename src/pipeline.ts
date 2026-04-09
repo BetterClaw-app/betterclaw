@@ -170,7 +170,7 @@ async function pushToAgent(deps: PipelineDeps, event: DeviceEvent, reason: strin
   }
 }
 
-function formatEnrichedMessage(event: DeviceEvent, context: ContextManager): string {
+export function formatEnrichedMessage(event: DeviceEvent, context: ContextManager): string {
   const state = context.get();
   const body = formatEventBody(event);
   const contextSummary = formatContextSummary(state);
@@ -183,7 +183,7 @@ function formatEnrichedMessage(event: DeviceEvent, context: ContextManager): str
   return `${prefix}\n\n${body}\n\nCurrent context: ${contextSummary}`;
 }
 
-function formatEventBody(event: DeviceEvent): string {
+export function formatEventBody(event: DeviceEvent): string {
   const data = event.data;
   const id = event.subscriptionId;
 
@@ -234,7 +234,7 @@ function formatEventBody(event: DeviceEvent): string {
   }
 }
 
-function formatContextSummary(state: DeviceContext): string {
+export function formatContextSummary(state: DeviceContext): string {
   const parts: string[] = [];
 
   if (state.activity.currentZone) {
@@ -255,7 +255,7 @@ function formatContextSummary(state: DeviceContext): string {
   return parts.length ? parts.join(". ") + "." : "No context available.";
 }
 
-function formatDuration(seconds: number): string {
+export function formatDuration(seconds: number): string {
   if (seconds < 60) return "<1m";
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   const h = Math.floor(seconds / 3600);

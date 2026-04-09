@@ -23,7 +23,7 @@ export interface ScanDeps {
 
 // --- Helpers ---
 
-function extractText(content: unknown): string {
+export function extractText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
@@ -34,7 +34,7 @@ function extractText(content: unknown): string {
   return "";
 }
 
-function isBetterClawPush(text: string): boolean {
+export function isBetterClawPush(text: string): boolean {
   return text.includes("[BetterClaw device event");
 }
 
