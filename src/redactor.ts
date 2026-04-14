@@ -24,31 +24,35 @@ export function hmacId(value: string, key: Buffer): string {
   return "hmac:" + createHmac("sha256", key).update(value).digest("hex").slice(0, 12);
 }
 
-export function allowPlain(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
-  if (value === null) return null;
-  const t = typeof value;
-  if (t === "string") {
-    const s = value as string;
-    return s.length > MAX_VALUE_BYTES
-      ? s.slice(0, MAX_VALUE_BYTES) + `…[truncated ${s.length - MAX_VALUE_BYTES} bytes]`
-      : s;
-  }
-  if (t === "number" || t === "boolean") return value;
-  if (t === "bigint") return String(value);
-  if (value instanceof Date || value instanceof URL) return String(value);
-  if (Array.isArray(value)) {
-    if (seen.has(value)) return "[circular]";
-    seen.add(value);
-    return value.map(v => allowPlain(v, seen));
-  }
-  if (t === "object") {
-    if (seen.has(value as object)) return "[circular]";
-    seen.add(value as object);
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as object)) out[k] = allowPlain(v, seen);
-    return out;
-  }
-  return String(value);  // Date, URL, undefined, functions, symbols — stringify
+export function allowPlain(value: unknown): unknown {
+  const seen = new WeakSet<object>();
+  const walk = (v: unknown): unknown => {
+    if (v === null) return null;
+    const t = typeof v;
+    if (t === "string") {
+      const s = v as string;
+      return s.length > MAX_VALUE_BYTES
+        ? s.slice(0, MAX_VALUE_BYTES) + `…[truncated ${s.length - MAX_VALUE_BYTES} bytes]`
+        : s;
+    }
+    if (t === "number" || t === "boolean") return v;
+    if (t === "bigint") return String(v);
+    if (v instanceof Date || v instanceof URL) return String(v);
+    if (Array.isArray(v)) {
+      if (seen.has(v)) return "[circular]";
+      seen.add(v);
+      return v.map(walk);
+    }
+    if (t === "object") {
+      if (seen.has(v as object)) return "[circular]";
+      seen.add(v as object);
+      const out: Record<string, unknown> = {};
+      for (const [k, vv] of Object.entries(v as object)) out[k] = walk(vv);
+      return out;
+    }
+    return String(v);  // undefined, functions, symbols
+  };
+  return walk(value);
 }
 
 export function drop(): undefined {
@@ -259,6 +263,13 @@ export type RedactedEntry = {
  * Wraps its own work in try/catch: circular refs, JSON.stringify failures, etc.
  * cause the entry to be dropped (return null) rather than aborting the whole
  * export.
+ *
+ * **Cycle policy:** if the raw `entry.data` contains any cycle — even under a
+ * key that would be default-denied — the entire entry is dropped. Rationale:
+ * if the producer handed us a corrupted object graph, we don't trust any
+ * field on it. This is strictly more conservative than `allowPlain`'s own
+ * WeakSet cycle handling, which would otherwise emit `"[circular]"` for
+ * cycles reached through allowed keys.
  */
 export function redactEntry(entry: RawEntry, settings: ExportSettings, key: Buffer): RedactedEntry | null {
   try {
@@ -271,7 +282,10 @@ export function redactEntry(entry: RawEntry, settings: ExportSettings, key: Buff
     // Per-field strategy and field-implied category filtering.
     let transformed: Record<string, unknown> | null = null;
     if (entry.data) {
-      JSON.stringify(entry.data);  // pre-flight: throws on circular refs → caught below
+      // Pre-flight: if raw data has a cycle anywhere, drop the entry (cycle policy above).
+      // Necessary because allowPlain is never called on default-denied keys, so a cycle
+      // under such a key wouldn't otherwise reach any stringify.
+      JSON.stringify(entry.data);
       transformed = {};
       for (const [k, v] of Object.entries(entry.data)) {
         // Field-implied category: drop this field only (not the whole entry)

@@ -129,6 +129,38 @@ describe("redactEntry", () => {
     expect(redactEntry(entry, allOn, key)).toBeNull();
   });
 
+  it("applies hmacUrlHost through redactEntry on url-shaped keys", () => {
+    const entry = {
+      timestamp: 1, level: "info" as const, source: "plugin.rpc", event: "ping.received",
+      message: "m", data: { url: "https://api.openai.com/v1/chat?tok=secret" },
+    };
+    const res = redactEntry(entry, allOn, key);
+    const data = JSON.parse(res!.data!);
+    expect(data.url).toMatch(/^hmac:[0-9a-f]{16}$/);
+  });
+
+  it("truncates oversize allowPlain values through redactEntry", () => {
+    const entry = {
+      timestamp: 1, level: "info" as const, source: "plugin.rpc", event: "ping.received",
+      message: "m", data: { tier: "x".repeat(10_000) },
+    };
+    const res = redactEntry(entry, allOn, key);
+    const data = JSON.parse(res!.data!);
+    expect(data.tier.length).toBeLessThan(10_000);
+    expect(data.tier).toMatch(/truncated/);
+  });
+
+  it("drops non-string values passed to hmac* strategies", () => {
+    const entry = {
+      timestamp: 1, level: "info" as const, source: "plugin.rpc", event: "ping.received",
+      message: "m", data: { host: 12345 as unknown as string, tier: "free" },
+    };
+    const res = redactEntry(entry, allOn, key);
+    const data = JSON.parse(res!.data!);
+    expect(data).not.toHaveProperty("host");
+    expect(data.tier).toBe("free");
+  });
+
   it("MANIFEST has positive integer manifestVersion", () => {
     expect(Number.isInteger(MANIFEST.manifestVersion)).toBe(true);
     expect(MANIFEST.manifestVersion).toBeGreaterThan(0);
