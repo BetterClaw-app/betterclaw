@@ -34,4 +34,34 @@ describe("errorFields", () => {
   it("omits stack key when absent", () => {
     expect(Object.keys(errorFields("plain")).includes("error.stack")).toBe(false);
   });
+
+  it("handles circular cause chains without stack overflow", () => {
+    const a = new Error("a");
+    const b = new Error("b");
+    (a as Error & { cause: unknown }).cause = b;
+    (b as Error & { cause: unknown }).cause = a;
+    const f = errorFields(a);
+    expect(f["error.message"]).toBe("a");
+    const bCause = f["error.cause"] as Record<string, unknown>;
+    expect(bCause["error.message"]).toBe("b");
+    const aAgain = bCause["error.cause"] as Record<string, unknown>;
+    expect(aAgain["error.message"]).toBe("<cycle>");
+  });
+
+  it("caps cause chain depth at 8", () => {
+    let head = new Error("head");
+    for (let i = 0; i < 20; i++) {
+      const wrap = new Error(`wrap-${i}`);
+      (wrap as Error & { cause: unknown }).cause = head;
+      head = wrap;
+    }
+    const f = errorFields(head);
+    let cursor: Record<string, unknown> | undefined = f;
+    let depth = 0;
+    while (cursor && cursor["error.cause"]) {
+      cursor = cursor["error.cause"] as Record<string, unknown>;
+      depth++;
+    }
+    expect(depth).toBeLessThanOrEqual(8);
+  });
 });
