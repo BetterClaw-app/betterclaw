@@ -3,6 +3,7 @@ dist/
 *.js
 !vitest.config.*
 docs/
+!docs/logging-schema.md
 .DS_Store
 .worktrees/
 TODO
