@@ -1,0 +1,308 @@
+import { createHmac } from "node:crypto";
+import type { PluginLogEntry } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Strategies
+// ---------------------------------------------------------------------------
+
+const MAX_VALUE_BYTES = 8192;
+
+export function hmacHost(value: string, key: Buffer): string {
+  return "hmac:" + createHmac("sha256", key).update(value).digest("hex").slice(0, 16);
+}
+
+export function hmacUrlHost(value: string, key: Buffer): string {
+  try {
+    const u = new URL(value);
+    return hmacHost(u.host, key);
+  } catch {
+    return "hmac:invalid";
+  }
+}
+
+export function hmacId(value: string, key: Buffer): string {
+  return "hmac:" + createHmac("sha256", key).update(value).digest("hex").slice(0, 12);
+}
+
+export function allowPlain(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
+  if (value === null) return null;
+  const t = typeof value;
+  if (t === "string") {
+    const s = value as string;
+    return s.length > MAX_VALUE_BYTES
+      ? s.slice(0, MAX_VALUE_BYTES) + `…[truncated ${s.length - MAX_VALUE_BYTES} bytes]`
+      : s;
+  }
+  if (t === "number" || t === "boolean") return value;
+  if (t === "bigint") return String(value);
+  if (value instanceof Date || value instanceof URL) return String(value);
+  if (Array.isArray(value)) {
+    if (seen.has(value)) return "[circular]";
+    seen.add(value);
+    return value.map(v => allowPlain(v, seen));
+  }
+  if (t === "object") {
+    if (seen.has(value as object)) return "[circular]";
+    seen.add(value as object);
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as object)) out[k] = allowPlain(v, seen);
+    return out;
+  }
+  return String(value);  // Date, URL, undefined, functions, symbols — stringify
+}
+
+export function drop(): undefined {
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type ExportCategory =
+  | "connection" | "heartbeat" | "commands" | "dns"
+  | "lifecycle" | "battery"
+  | "subscriptions" | "health" | "location" | "geofence";
+
+export type ExportSettings = Record<ExportCategory, boolean>;
+
+type Strategy = "hmacHost" | "hmacUrlHost" | "hmacId" | "allowPlain" | "drop";
+
+type SourceDef = {
+  exportCategory: ExportCategory;
+  fieldLevelMapping?: boolean;
+  events: Record<string, { level: "debug" | "info" | "notice" | "warning" | "error" | "critical"; requiredKeys: string[] }>;
+};
+
+// ---------------------------------------------------------------------------
+// MANIFEST — single source of truth
+// ---------------------------------------------------------------------------
+
+export const MANIFEST: {
+  manifestVersion: number;
+  sources: Record<string, SourceDef>;
+  keyStrategies: Record<string, Strategy>;
+  fieldCategoryImplications: Record<string, ExportCategory>;
+} = {
+  manifestVersion: 1,
+
+  sources: {
+    "plugin.service": {
+      exportCategory: "lifecycle",
+      events: {
+        "loaded":        { level: "info",  requiredKeys: [] },
+        "init.phase":    { level: "info",  requiredKeys: ["phase", "success"] },
+        "init.complete": { level: "info",  requiredKeys: ["durationMs"] },
+        "started":       { level: "info",  requiredKeys: [] },
+        "stopped":       { level: "info",  requiredKeys: [] },
+        "info": { level: "info",  requiredKeys: [] },  // scoped
+        "warn": { level: "warning", requiredKeys: [] },  // scoped
+        "error": { level: "error", requiredKeys: [] },  // scoped
+      },
+    },
+    "plugin.rpc": {
+      exportCategory: "lifecycle",
+      events: {
+        "ping.received":     { level: "info",    requiredKeys: [] },
+        "config.applied":    { level: "info",    requiredKeys: ["changedFields"] },
+        "config.error":      { level: "error",   requiredKeys: [] },
+        "context.served":    { level: "info",    requiredKeys: ["tier"] },
+        "context.error":     { level: "error",   requiredKeys: [] },
+        "learn.triggered":   { level: "info",    requiredKeys: [] },
+        "learn.error":       { level: "error",   requiredKeys: [] },
+        "snapshot.applied":  { level: "info",    requiredKeys: ["fieldCount"] },
+        "snapshot.error":    { level: "error",   requiredKeys: [] },
+        "event.error":       { level: "error",   requiredKeys: [] },
+        "logs.error":        { level: "error",   requiredKeys: [] },
+      },
+    },
+    "plugin.calibration": {
+      exportCategory: "lifecycle",
+      events: {
+        "calibration.skipped": { level: "info",    requiredKeys: [] },
+        "calibration.started": { level: "info",    requiredKeys: [] },
+        "calibration.error":   { level: "warning", requiredKeys: [] },
+      },
+    },
+    "plugin.pipeline": {
+      exportCategory: "lifecycle",
+      events: {
+        "event.error": { level: "error", requiredKeys: [] },
+      },
+    },
+    "plugin.reactions": {
+      exportCategory: "subscriptions",
+      events: {
+        "scan.failed": { level: "error", requiredKeys: [] },
+        "info": { level: "info",  requiredKeys: [] },  // scoped
+        "warn": { level: "warning", requiredKeys: [] },  // scoped
+        "error": { level: "error", requiredKeys: [] },  // scoped
+      },
+    },
+    "plugin.learner": {
+      exportCategory: "lifecycle",
+      events: {
+        "learner.completed": { level: "info",  requiredKeys: ["durationMs"] },
+        "learner.failed":    { level: "error", requiredKeys: [] },
+      },
+    },
+    "plugin.context": {
+      exportCategory: "health",
+      fieldLevelMapping: true,
+      events: {
+        "info": { level: "info",  requiredKeys: [] },  // scoped
+        "warn": { level: "warning", requiredKeys: [] },  // scoped
+        "error": { level: "error", requiredKeys: [] },  // scoped
+      },
+    },
+    "plugin.patterns": {
+      exportCategory: "health",
+      fieldLevelMapping: true,
+      events: {
+        "info": { level: "info",  requiredKeys: [] },  // scoped
+        "warn": { level: "warning", requiredKeys: [] },  // scoped
+        "error": { level: "error", requiredKeys: [] },  // scoped
+      },
+    },
+    "plugin.events": {
+      exportCategory: "lifecycle",
+      events: {
+        "info": { level: "info",  requiredKeys: [] },  // scoped
+        "warn": { level: "warning", requiredKeys: [] },  // scoped
+        "error": { level: "error", requiredKeys: [] },  // scoped
+      },
+    },
+    "plugin.filter": {
+      exportCategory: "lifecycle",
+      events: {
+        "info": { level: "info",  requiredKeys: [] },  // scoped
+        "warn": { level: "warning", requiredKeys: [] },  // scoped
+        "error": { level: "error", requiredKeys: [] },  // scoped
+      },
+    },
+  },
+
+  keyStrategies: {
+    // hmacHost
+    host: "hmacHost", target: "hmacHost", endpoint: "hmacHost",
+    gateway: "hmacHost", serverName: "hmacHost", ip: "hmacHost",
+    // hmacUrlHost
+    url: "hmacUrlHost", upstream: "hmacUrlHost", failingURL: "hmacUrlHost",
+    "error.failingURL": "hmacUrlHost",
+    // hmacId
+    cycleId: "hmacId", connectionId: "hmacId", runId: "hmacId",
+    sessionId: "hmacId", nodeId: "hmacId", deviceId: "hmacId",
+    correlationId: "hmacId", serverId: "hmacId", regionId: "hmacId",
+    geofenceId: "hmacId", label: "hmacId", zoneName: "hmacId",
+    // drop
+    path: "drop", filePath: "drop", description: "drop",
+    locale: "drop", timezone: "drop",
+    deviceToken: "drop", accessToken: "drop", refreshToken: "drop",
+    bearerToken: "drop", tokenSuffix: "drop", password: "drop",
+    latitude: "drop", longitude: "drop", lat: "drop", lon: "drop",
+    coordinate: "drop", coordinates: "drop",
+    heartRate: "drop", steps: "drop", calories: "drop",
+    geofenceCoords: "drop", regions: "drop",
+    legacyKey: "drop", underlyingDescription: "drop",
+    // allowPlain — operational scalars and safe enums
+    tier: "allowPlain", smartMode: "allowPlain", phase: "allowPlain",
+    success: "allowPlain", durationMs: "allowPlain",
+    fieldCount: "allowPlain", changedFields: "allowPlain",
+    command: "allowPlain", commandName: "allowPlain", commandType: "allowPlain",
+    nodeConnected: "allowPlain", entitlements: "allowPlain",
+    version: "allowPlain", appVersion: "allowPlain", buildNumber: "allowPlain",
+    systemVersion: "allowPlain", deviceModel: "allowPlain",
+    // error.*
+    "error.type":                        "allowPlain",
+    "error.message":                     "allowPlain",
+    "error.stack":                       "allowPlain",
+    "error.cause":                       "allowPlain",
+    "error.code":                        "allowPlain",
+    "error.domain":                      "allowPlain",
+    "error.description":                 "allowPlain",
+    "error.underlyingDomain":            "allowPlain",
+    "error.underlyingCode":              "allowPlain",
+    "error.authMessage":                 "allowPlain",
+    "error.authDetailCode":              "allowPlain",
+    "error.authRecommendedNextStep":     "allowPlain",
+    "error.authCanRetryWithDeviceToken": "allowPlain",
+  },
+
+  fieldCategoryImplications: {
+    lat: "location", lon: "location", latitude: "location", longitude: "location",
+    coordinate: "location", coordinates: "location",
+    heartRate: "health", steps: "health", calories: "health",
+    zoneName: "geofence", geofenceId: "geofence", geofenceCoords: "geofence",
+  },
+};
+
+// ---------------------------------------------------------------------------
+// redactEntry
+// ---------------------------------------------------------------------------
+
+type RawEntry = Omit<PluginLogEntry, "data"> & { data?: Record<string, unknown> };
+
+export type RedactedEntry = {
+  timestamp: number;
+  level: PluginLogEntry["level"];
+  source: string;
+  event: string;
+  message: string;
+  data: string | null;
+};
+
+/**
+ * Redact a single entry per MANIFEST. Returns null if the entry's base export
+ * category is disabled or the source is unknown. Field-implied categories
+ * (e.g. `lat` → location) filter individual fields without dropping the entry.
+ *
+ * Wraps its own work in try/catch: circular refs, JSON.stringify failures, etc.
+ * cause the entry to be dropped (return null) rather than aborting the whole
+ * export.
+ */
+export function redactEntry(entry: RawEntry, settings: ExportSettings, key: Buffer): RedactedEntry | null {
+  try {
+    const sourceDef = MANIFEST.sources[entry.source];
+    if (!sourceDef) return null;
+
+    // Base category gates the whole entry.
+    if (!settings[sourceDef.exportCategory]) return null;
+
+    // Per-field strategy and field-implied category filtering.
+    let transformed: Record<string, unknown> | null = null;
+    if (entry.data) {
+      JSON.stringify(entry.data);  // pre-flight: throws on circular refs → caught below
+      transformed = {};
+      for (const [k, v] of Object.entries(entry.data)) {
+        // Field-implied category: drop this field only (not the whole entry)
+        // if its implied category is disabled.
+        const impliedCat = MANIFEST.fieldCategoryImplications[k];
+        if (impliedCat && !settings[impliedCat]) continue;
+
+        const strategy = MANIFEST.keyStrategies[k];
+        if (!strategy) continue;  // default-deny
+
+        let out: unknown;
+        switch (strategy) {
+          case "hmacHost":    out = typeof v === "string" ? hmacHost(v, key) : undefined; break;
+          case "hmacUrlHost": out = typeof v === "string" ? hmacUrlHost(v, key) : undefined; break;
+          case "hmacId":      out = typeof v === "string" ? hmacId(v, key) : undefined; break;
+          case "allowPlain":  out = allowPlain(v); break;
+          case "drop":        out = undefined; break;
+        }
+        if (out !== undefined) transformed[k] = out;
+      }
+    }
+
+    return {
+      timestamp: entry.timestamp,
+      level: entry.level,
+      source: entry.source,
+      event: entry.event,
+      message: entry.message,
+      data: transformed === null ? null : JSON.stringify(transformed),
+    };
+  } catch {
+    return null;
+  }
+}
