@@ -87,7 +87,12 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
     this.apiLogger.error(`[${source}] ${message}`);
   }
 
-  static warnDeprecationEmitted = false;
+  private static warnDeprecationEmitted = false;
+
+  /** @internal test helper — resets the one-shot deprecation flag. */
+  static _resetWarnDeprecationForTest(): void {
+    PluginDiagnosticLogger.warnDeprecationEmitted = false;
+  }
 
   scoped(source: string): PluginModuleLogger {
     return {
@@ -205,5 +210,5 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
 
 /** @internal test helper — resets the one-shot deprecation flag. */
 export function _resetWarnDeprecationForTest(): void {
-  PluginDiagnosticLogger.warnDeprecationEmitted = false;
+  PluginDiagnosticLogger._resetWarnDeprecationForTest();
 }
