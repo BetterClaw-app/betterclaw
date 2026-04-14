@@ -543,20 +543,20 @@ export default {
               if (opts.dryRun) {
                 if (addedCmds > 0) {
                   const newCmds = mergedCmds.filter((c) => !existingCmds.includes(c));
-                  console.log(`[dry-run] Would add ${addedCmds} node commands: ${newCmds.join(", ")}`);
+                  console.log(`[dry-run] Would add ${addedCmds} node commands: ${newCmds.join(", ")}`); // schema-lint: allow-console
                 }
                 if (addedTools > 0) {
                   const newTools = mergedAllow.filter((t) => !existingAllow.includes(t));
-                  console.log(`[dry-run] Would add ${addedTools} agent tools to alsoAllow: ${newTools.join(", ")}`);
+                  console.log(`[dry-run] Would add ${addedTools} agent tools to alsoAllow: ${newTools.join(", ")}`); // schema-lint: allow-console
                 }
                 if (addedCmds === 0 && addedTools === 0) {
-                  console.log("[dry-run] Everything already configured.");
+                  console.log("[dry-run] Everything already configured."); // schema-lint: allow-console
                 }
                 return;
               }
 
               if (addedCmds === 0 && addedTools === 0) {
-                console.log("All BetterClaw commands and tools already configured.");
+                console.log("All BetterClaw commands and tools already configured."); // schema-lint: allow-console
                 return;
               }
 
@@ -569,9 +569,9 @@ export default {
               const parts: string[] = [];
               if (addedCmds > 0) parts.push(`${addedCmds} node commands`);
               if (addedTools > 0) parts.push(`${addedTools} agent tools (${BETTERCLAW_TOOLS.join(", ")})`);
-              console.log(`Added ${parts.join(" + ")}. Restart gateway to apply.`);
+              console.log(`Added ${parts.join(" + ")}. Restart gateway to apply.`); // schema-lint: allow-console
             } catch (err) {
-              console.error(`Failed to update config: ${err}`);
+              console.error(`Failed to update config: ${err}`); // schema-lint: allow-console
               process.exit(1);
             }
           });

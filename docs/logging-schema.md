@@ -52,11 +52,14 @@
 |---|---|---|
 | `learner.completed` | `info` | `durationMs` |
 | `learner.failed` | `error` | — |
+| `learner.started` | `info` | `eventsCount`, `reactionsCount`, `hasMemory`, `hasPreviousProfile` |
+| `profile.updated` | `info` | `summary`, `interruptionTolerance` |
 
 ### `plugin.patterns` — export category `health` — **field-level category mapping enabled**
 
 | event | level | required data |
 |---|---|---|
+| `compute.completed` | `info` | `eventsProcessed` |
 | `error` | `error` | — |
 | `info` | `info` | — |
 | `warn` | `warning` | — |
@@ -65,15 +68,29 @@
 
 | event | level | required data |
 |---|---|---|
+| `dedup.checked` | `debug` | `subscriptionId`, `currentLevel`, `lastPushedLevel`, `deduplicated` |
+| `event.blocked` | `info` | `subscriptionId` |
 | `event.error` | `error` | — |
+| `event.free.stored` | `info` | `subscriptionId` |
+| `event.received` | `info` | `subscriptionId`, `source` |
+| `push.decided` | `info` | `subscriptionId`, `decision`, `reason` |
+| `push.failed` | `error` | `subscriptionId`, `error` |
+| `push.sent` | `info` | `subscriptionId` |
 
 ### `plugin.reactions` — export category `subscriptions`
 
 | event | level | required data |
 |---|---|---|
+| `classified` | `info` | `subscriptionId`, `status`, `reason` |
+| `classified.error` | `error` | `subscriptionId`, `error` |
 | `error` | `error` | — |
 | `info` | `info` | — |
+| `scan.completed` | `info` | `classified`, `skipped` |
+| `scan.empty` | `debug` | — |
+| `scan.error` | `error` | `error` |
 | `scan.failed` | `error` | — |
+| `scan.skipped` | `info` | `subscriptionId`, `pushedAt` |
+| `scan.started` | `info` | `pendingCount` |
 | `warn` | `warning` | — |
 
 ### `plugin.rpc` — export category `lifecycle`
@@ -105,6 +122,14 @@
 | `stopped` | `info` | — |
 | `warn` | `warning` | — |
 
+### `plugin.triage` — export category `lifecycle`
+
+| event | level | required data |
+|---|---|---|
+| `triage.called` | `info` | `subscriptionId`, `model` |
+| `triage.fallback` | `error` | `subscriptionId`, `error`, `fallbackAction` |
+| `triage.result` | `info` | `subscriptionId`, `decision`, `reason` |
+
 ## Redaction manifest
 
 | key | strategy |
@@ -115,6 +140,7 @@
 | `buildNumber` | `allowPlain` |
 | `calories` | `drop` |
 | `changedFields` | `allowPlain` |
+| `classified` | `allowPlain` |
 | `command` | `allowPlain` |
 | `commandName` | `allowPlain` |
 | `commandType` | `allowPlain` |
@@ -122,7 +148,10 @@
 | `coordinate` | `drop` |
 | `coordinates` | `drop` |
 | `correlationId` | `hmacId` |
+| `currentLevel` | `allowPlain` |
 | `cycleId` | `hmacId` |
+| `decision` | `allowPlain` |
+| `deduplicated` | `allowPlain` |
 | `description` | `drop` |
 | `deviceId` | `hmacId` |
 | `deviceModel` | `allowPlain` |
@@ -130,6 +159,7 @@
 | `durationMs` | `allowPlain` |
 | `endpoint` | `hmacHost` |
 | `entitlements` | `allowPlain` |
+| `error` | `allowPlain` |
 | `error.authCanRetryWithDeviceToken` | `allowPlain` |
 | `error.authDetailCode` | `allowPlain` |
 | `error.authMessage` | `allowPlain` |
@@ -144,27 +174,39 @@
 | `error.type` | `allowPlain` |
 | `error.underlyingCode` | `allowPlain` |
 | `error.underlyingDomain` | `allowPlain` |
+| `eventsCount` | `allowPlain` |
+| `eventsProcessed` | `allowPlain` |
 | `failingURL` | `hmacUrlHost` |
+| `fallbackAction` | `allowPlain` |
 | `fieldCount` | `allowPlain` |
 | `filePath` | `drop` |
 | `gateway` | `hmacHost` |
 | `geofenceCoords` | `drop` |
 | `geofenceId` | `hmacId` |
+| `hasMemory` | `allowPlain` |
+| `hasPreviousProfile` | `allowPlain` |
 | `heartRate` | `drop` |
 | `host` | `hmacHost` |
+| `interruptionTolerance` | `allowPlain` |
 | `ip` | `hmacHost` |
 | `label` | `hmacId` |
+| `lastPushedLevel` | `allowPlain` |
 | `lat` | `drop` |
 | `latitude` | `drop` |
 | `legacyKey` | `drop` |
 | `locale` | `drop` |
 | `lon` | `drop` |
 | `longitude` | `drop` |
+| `model` | `allowPlain` |
 | `nodeConnected` | `allowPlain` |
 | `nodeId` | `hmacId` |
 | `password` | `drop` |
 | `path` | `drop` |
+| `pendingCount` | `allowPlain` |
 | `phase` | `allowPlain` |
+| `pushedAt` | `allowPlain` |
+| `reactionsCount` | `allowPlain` |
+| `reason` | `allowPlain` |
 | `refreshToken` | `drop` |
 | `regionId` | `hmacId` |
 | `regions` | `drop` |
@@ -172,9 +214,14 @@
 | `serverId` | `hmacId` |
 | `serverName` | `hmacHost` |
 | `sessionId` | `hmacId` |
+| `skipped` | `allowPlain` |
 | `smartMode` | `allowPlain` |
+| `source` | `allowPlain` |
+| `status` | `allowPlain` |
 | `steps` | `drop` |
+| `subscriptionId` | `hmacId` |
 | `success` | `allowPlain` |
+| `summary` | `allowPlain` |
 | `systemVersion` | `allowPlain` |
 | `target` | `hmacHost` |
 | `tier` | `allowPlain` |

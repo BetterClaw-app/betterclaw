@@ -31,7 +31,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
 
   // Tier gate: free users get store-only path — no triage, no push
   if (context.getRuntimeState().tier === "free") {
-    dlog.info("plugin.pipeline", "event.free_stored", "event stored (free tier)", { subscriptionId: event.subscriptionId });
+    dlog.info("plugin.pipeline", "event.free.stored", "event stored (free tier)", { subscriptionId: event.subscriptionId });
     await events.append({ event, decision: "free_stored", reason: "free tier", timestamp: Date.now() / 1000 });
     return;
   }
