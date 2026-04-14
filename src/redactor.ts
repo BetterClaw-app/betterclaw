@@ -131,13 +131,27 @@ export const MANIFEST: {
     "plugin.pipeline": {
       exportCategory: "lifecycle",
       events: {
-        "event.error": { level: "error", requiredKeys: [] },
+        "event.error":       { level: "error", requiredKeys: [] },
+        "event.received":    { level: "info",  requiredKeys: ["subscriptionId", "source"] },
+        "event.free.stored": { level: "info",  requiredKeys: ["subscriptionId"] },
+        "event.blocked":     { level: "info",  requiredKeys: ["subscriptionId"] },
+        "push.decided":      { level: "info",  requiredKeys: ["subscriptionId", "decision", "reason"] },
+        "push.sent":         { level: "info",  requiredKeys: ["subscriptionId"] },
+        "push.failed":       { level: "error", requiredKeys: ["subscriptionId", "error"] },
+        "dedup.checked":     { level: "debug", requiredKeys: ["subscriptionId", "currentLevel", "lastPushedLevel", "deduplicated"] },
       },
     },
     "plugin.reactions": {
       exportCategory: "subscriptions",
       events: {
-        "scan.failed": { level: "error", requiredKeys: [] },
+        "scan.failed":      { level: "error",   requiredKeys: [] },
+        "scan.empty":       { level: "debug",   requiredKeys: [] },
+        "scan.started":     { level: "info",    requiredKeys: ["pendingCount"] },
+        "scan.error":       { level: "error",   requiredKeys: ["error"] },
+        "scan.skipped":     { level: "info",    requiredKeys: ["subscriptionId", "pushedAt"] },
+        "classified":       { level: "info",    requiredKeys: ["subscriptionId", "status", "reason"] },
+        "classified.error": { level: "error",   requiredKeys: ["subscriptionId", "error"] },
+        "scan.completed":   { level: "info",    requiredKeys: ["classified", "skipped"] },
         "info": { level: "info",  requiredKeys: [] },  // scoped
         "warn": { level: "warning", requiredKeys: [] },  // scoped
         "error": { level: "error", requiredKeys: [] },  // scoped
@@ -148,6 +162,16 @@ export const MANIFEST: {
       events: {
         "learner.completed": { level: "info",  requiredKeys: ["durationMs"] },
         "learner.failed":    { level: "error", requiredKeys: [] },
+        "learner.started":   { level: "info",  requiredKeys: ["eventsCount", "reactionsCount", "hasMemory", "hasPreviousProfile"] },
+        "profile.updated":   { level: "info",  requiredKeys: ["summary", "interruptionTolerance"] },
+      },
+    },
+    "plugin.triage": {
+      exportCategory: "lifecycle",
+      events: {
+        "triage.called":   { level: "info",  requiredKeys: ["subscriptionId", "model"] },
+        "triage.result":   { level: "info",  requiredKeys: ["subscriptionId", "decision", "reason"] },
+        "triage.fallback": { level: "error", requiredKeys: ["subscriptionId", "error", "fallbackAction"] },
       },
     },
     "plugin.context": {
@@ -163,6 +187,7 @@ export const MANIFEST: {
       exportCategory: "health",
       fieldLevelMapping: true,
       events: {
+        "compute.completed": { level: "info", requiredKeys: ["eventsProcessed"] },
         "info": { level: "info",  requiredKeys: [] },  // scoped
         "warn": { level: "warning", requiredKeys: [] },  // scoped
         "error": { level: "error", requiredKeys: [] },  // scoped
@@ -198,6 +223,7 @@ export const MANIFEST: {
     sessionId: "hmacId", nodeId: "hmacId", deviceId: "hmacId",
     correlationId: "hmacId", serverId: "hmacId", regionId: "hmacId",
     geofenceId: "hmacId", label: "hmacId", zoneName: "hmacId",
+    subscriptionId: "hmacId",
     // drop
     path: "drop", filePath: "drop", description: "drop",
     locale: "drop", timezone: "drop",
@@ -216,6 +242,17 @@ export const MANIFEST: {
     nodeConnected: "allowPlain", entitlements: "allowPlain",
     version: "allowPlain", appVersion: "allowPlain", buildNumber: "allowPlain",
     systemVersion: "allowPlain", deviceModel: "allowPlain",
+    // pipeline / triage / reactions / learner / patterns operational scalars
+    source: "allowPlain", decision: "allowPlain", reason: "allowPlain",
+    status: "allowPlain", model: "allowPlain", fallbackAction: "allowPlain",
+    error: "allowPlain",
+    pendingCount: "allowPlain", pushedAt: "allowPlain",
+    classified: "allowPlain", skipped: "allowPlain",
+    currentLevel: "allowPlain", lastPushedLevel: "allowPlain", deduplicated: "allowPlain",
+    eventsCount: "allowPlain", reactionsCount: "allowPlain",
+    hasMemory: "allowPlain", hasPreviousProfile: "allowPlain",
+    eventsProcessed: "allowPlain",
+    summary: "allowPlain", interruptionTolerance: "allowPlain",
     // error.*
     "error.type":                        "allowPlain",
     "error.message":                     "allowPlain",
