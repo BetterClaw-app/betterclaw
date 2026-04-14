@@ -23,7 +23,7 @@ export function errorMessage(err: unknown): string {
 /** Structured log entry for diagnostic JSONL files. */
 export interface PluginLogEntry {
   timestamp: number;
-  level: "debug" | "info" | "warn" | "error";
+  level: "debug" | "info" | "notice" | "warning" | "error" | "critical";
   source: string;
   event: string;
   message: string;

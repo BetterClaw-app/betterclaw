@@ -2,17 +2,23 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { PluginModuleLogger, PluginLogEntry } from "./types.js";
 
-const LEVEL_ORDER = ["debug", "info", "warn", "error"] as const;
+const LEVEL_ORDER = ["debug", "info", "notice", "warning", "error", "critical"] as const;
 
 /** Lean interface for module-facing logging. Modules import `dlog` and call these methods. */
 export interface DiagnosticLogWriter {
   debug(source: string, event: string, message: string, data?: Record<string, unknown>): void;
   info(source: string, event: string, message: string, data?: Record<string, unknown>): void;
+  notice(source: string, event: string, message: string, data?: Record<string, unknown>): void;
+  warning(source: string, event: string, message: string, data?: Record<string, unknown>): void;
+  /** @deprecated Use `warning` instead. Routes to `warning`; emits a one-shot console.warn. */
   warn(source: string, event: string, message: string, data?: Record<string, unknown>): void;
   error(source: string, event: string, message: string, data?: Record<string, unknown>): void;
+  critical(source: string, event: string, message: string, data?: Record<string, unknown>): void;
 }
 
-const NOOP: DiagnosticLogWriter = { debug() {}, info() {}, warn() {}, error() {} };
+const NOOP: DiagnosticLogWriter = {
+  debug() {}, info() {}, notice() {}, warning() {}, warn() {}, error() {}, critical() {},
+};
 
 /**
  * Singleton diagnostic logger. Always a valid object:
@@ -52,9 +58,23 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
     this.apiLogger.info(`[${source}] ${message}`);
   }
 
-  warn(source: string, event: string, message: string, data?: Record<string, unknown>): void {
-    this.writeEntry({ timestamp: Date.now() / 1000, level: "warn", source, event, message, ...(data !== undefined && { data }) });
+  notice(source: string, event: string, message: string, data?: Record<string, unknown>): void {
+    this.writeEntry({ timestamp: Date.now() / 1000, level: "notice", source, event, message, ...(data !== undefined && { data }) });
+    this.apiLogger.info(`[${source}] ${message}`);
+  }
+
+  warning(source: string, event: string, message: string, data?: Record<string, unknown>): void {
+    this.writeEntry({ timestamp: Date.now() / 1000, level: "warning", source, event, message, ...(data !== undefined && { data }) });
     this.apiLogger.warn(`[${source}] ${message}`);
+  }
+
+  /** @deprecated Routes to `warning`. Emits one-shot console.warn on first use. */
+  warn(source: string, event: string, message: string, data?: Record<string, unknown>): void {
+    if (!PluginDiagnosticLogger.warnDeprecationEmitted) {
+      PluginDiagnosticLogger.warnDeprecationEmitted = true;
+      console.warn("[diagnostic-logger] .warn() is deprecated, use .warning() instead"); // schema-lint: allow-console
+    }
+    this.warning(source, event, message, data);
   }
 
   error(source: string, event: string, message: string, data?: Record<string, unknown>): void {
@@ -62,10 +82,17 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
     this.apiLogger.error(`[${source}] ${message}`);
   }
 
+  critical(source: string, event: string, message: string, data?: Record<string, unknown>): void {
+    this.writeEntry({ timestamp: Date.now() / 1000, level: "critical", source, event, message, ...(data !== undefined && { data }) });
+    this.apiLogger.error(`[${source}] ${message}`);
+  }
+
+  static warnDeprecationEmitted = false;
+
   scoped(source: string): PluginModuleLogger {
     return {
       info: (msg: string) => this.info(source, "info", msg),
-      warn: (msg: string) => this.warn(source, "warn", msg),
+      warn: (msg: string) => this.warning(source, "warn", msg),
       error: (msg: string) => this.error(source, "error", msg),
     };
   }
@@ -174,4 +201,9 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
   private formatDate(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
+}
+
+/** @internal test helper — resets the one-shot deprecation flag. */
+export function _resetWarnDeprecationForTest(): void {
+  PluginDiagnosticLogger.warnDeprecationEmitted = false;
 }
