@@ -2,7 +2,7 @@ node_modules/
 dist/
 *.js
 !vitest.config.*
-docs/
+docs/*
 !docs/logging-schema.md
 .DS_Store
 .worktrees/

@@ -10,7 +10,8 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "test:e2e": "vitest run --config vitest.e2e.config.ts"
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "schema:gen": "tsx scripts/generate-schema-doc.ts"
   },
   "openclaw": {
     "extensions": [
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@types/node": "^25.5.2",
     "openclaw": "^2026.4.14",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vitest": "^3.0.0"
   }
