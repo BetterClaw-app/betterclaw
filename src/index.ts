@@ -1,6 +1,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { PluginConfig, DeviceConfig } from "./types.js";
 import { errorMessage } from "./types.js";
+import { errorFields } from "./errors.js";
 import { initDiagnosticLogger } from "./diagnostic-logger.js";
 import { ContextManager } from "./context.js";
 import { createGetContextTool } from "./tools/get-context.js";
@@ -122,15 +123,13 @@ export default {
         initialized = true;
         diagnosticLogger.info("plugin.service", "init.phase", "context loaded", { phase: "context", success: true });
       } catch (err) {
-        const msg = errorMessage(err);
-        diagnosticLogger.error("plugin.service", "init.phase", "context init failed: " + msg, { phase: "context", success: false, error: msg });
+        diagnosticLogger.error("plugin.service", "init.phase", "context init failed", { phase: "context", success: false, ...errorFields(err) });
       }
       try {
         await reactionTracker.load();
         diagnosticLogger.info("plugin.service", "init.phase", "reactions loaded", { phase: "reactions", success: true });
       } catch (err) {
-        const msg = errorMessage(err);
-        diagnosticLogger.warning("plugin.service", "init.phase", "reaction tracker load failed: " + msg, { phase: "reactions", success: false, error: msg });
+        diagnosticLogger.warning("plugin.service", "init.phase", "reaction tracker load failed", { phase: "reactions", success: false, ...errorFields(err) });
       }
       if (initialized) {
         try {
@@ -142,8 +141,7 @@ export default {
           );
           diagnosticLogger.info("plugin.service", "init.complete", "async init complete", { durationMs: Date.now() - initStart });
         } catch (err) {
-          const msg = errorMessage(err);
-          diagnosticLogger.error("plugin.service", "init.phase", "cooldown restore failed: " + msg, { phase: "cooldowns", success: false, error: msg });
+          diagnosticLogger.error("plugin.service", "init.phase", "cooldown restore failed", { phase: "cooldowns", success: false, ...errorFields(err) });
         }
       }
     })();
@@ -180,8 +178,7 @@ export default {
           diagnosticLogger.info("plugin.calibration", "calibration.started", "calibration period started");
         }
         fs.writeFile(calibrationFile, JSON.stringify({ startedAt: calibrationStartedAt }), "utf8").catch((err) => {
-          const msg = errorMessage(err);
-          diagnosticLogger.warning("plugin.calibration", "calibration.error", "calibration file write failed: " + msg, { error: msg });
+          diagnosticLogger.warning("plugin.calibration", "calibration.error", "calibration file write failed", errorFields(err));
         });
       }
 
@@ -217,8 +214,7 @@ export default {
         diagnosticLogger.info("plugin.rpc", "config.applied", "config updated", { changedFields: Object.keys(deviceConfig) });
         respond(true, { applied: true });
       } catch (err) {
-        const msg = errorMessage(err);
-        diagnosticLogger.error("plugin.rpc", "config.error", "config RPC failed: " + msg, { error: msg });
+        diagnosticLogger.error("plugin.rpc", "config.error", "config RPC failed", errorFields(err));
         respond(false, undefined, { code: "INTERNAL_ERROR", message: "config update failed" });
       }
     });
@@ -300,8 +296,7 @@ export default {
           triageProfile: profile ?? null,
         });
       } catch (err) {
-        const msg = errorMessage(err);
-        diagnosticLogger.error("plugin.rpc", "context.error", "context RPC failed: " + msg, { error: msg });
+        diagnosticLogger.error("plugin.rpc", "context.error", "context RPC failed", errorFields(err));
         respond(false, undefined, { code: "INTERNAL_ERROR", message: "context fetch failed" });
       }
     });
@@ -350,7 +345,7 @@ export default {
       } catch (err) {
         learnerRunning = false;
         const msg = errorMessage(err);
-        diagnosticLogger.error("plugin.rpc", "learn.error", "learn RPC failed: " + msg, { error: msg });
+        diagnosticLogger.error("plugin.rpc", "learn.error", "learn RPC failed", { ...errorFields(err) });
         respond(true, { ok: false, error: msg });
       }
     });
@@ -376,8 +371,7 @@ export default {
         diagnosticLogger.info("plugin.rpc", "snapshot.applied", "snapshot applied", { fieldCount: Object.keys(snapshot).length });
         respond(true, { applied: true });
       } catch (err) {
-        const msg = errorMessage(err);
-        diagnosticLogger.error("plugin.rpc", "snapshot.error", "snapshot RPC failed: " + msg, { error: msg });
+        diagnosticLogger.error("plugin.rpc", "snapshot.error", "snapshot RPC failed", errorFields(err));
         respond(false, undefined, { code: "INTERNAL_ERROR", message: "snapshot apply failed" });
       }
     });
@@ -471,12 +465,11 @@ export default {
         // Sequential processing — prevents budget races
         eventQueue = eventQueue.then(() => processEvent(pipelineDeps, event)).catch((err) => {
           const msg = errorMessage(err);
-          diagnosticLogger.error("plugin.pipeline", "event.error", "event processing failed: " + msg, { error: msg });
+          diagnosticLogger.error("plugin.pipeline", "event.error", "event processing failed", { ...errorFields(err) });
           eventLog.append({ event, decision: "error", reason: `processing error: ${msg}`, timestamp: Date.now() / 1000 });
         });
       } catch (err) {
-        const msg = errorMessage(err);
-        diagnosticLogger.error("plugin.rpc", "event.error", "event handler error: " + msg, { error: msg });
+        diagnosticLogger.error("plugin.rpc", "event.error", "event handler error", errorFields(err));
         respond(false, undefined, { code: "INTERNAL_ERROR", message: "event processing failed" });
       }
     });
@@ -495,8 +488,7 @@ export default {
             try {
               await scanPendingReactions({ reactions: reactionTracker, api });
             } catch (err) {
-              const msg = errorMessage(err);
-              diagnosticLogger.error("plugin.reactions", "scan.failed", "reaction scan failed: " + msg, { error: msg });
+              diagnosticLogger.error("plugin.reactions", "scan.failed", "reaction scan failed", errorFields(err));
             }
 
             try {
@@ -511,8 +503,7 @@ export default {
               });
               diagnosticLogger.info("plugin.learner", "learner.completed", "daily learner completed", { durationMs: Date.now() - learnerStart });
             } catch (err) {
-              const msg = errorMessage(err);
-              diagnosticLogger.error("plugin.learner", "learner.failed", "daily learner failed: " + msg, { error: msg });
+              diagnosticLogger.error("plugin.learner", "learner.failed", "daily learner failed", errorFields(err));
             }
           }
         });
