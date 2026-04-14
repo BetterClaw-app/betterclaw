@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { PluginDiagnosticLogger, initDiagnosticLogger } from "../src/diagnostic-logger.js";
+import { PluginDiagnosticLogger, initDiagnosticLogger, _resetWarnDeprecationForTest } from "../src/diagnostic-logger.js";
 import { mockLogger, makeTmpDir } from "./helpers.js";
-import type { PluginLogEntry } from "../src/types.js";
+import type { PluginLogEntry, PluginModuleLogger } from "../src/types.js";
 
 describe("PluginDiagnosticLogger", () => {
   let logDir: string;
@@ -49,12 +49,12 @@ describe("PluginDiagnosticLogger", () => {
     it("appends multiple entries to the same daily file", async () => {
       const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
       dlog.info("s", "e", "first");
-      dlog.warn("s", "e", "second");
+      dlog.warning("s", "e", "second");
       dlog.error("s", "e", "third");
       await dlog.flush();
       const { entries } = await dlog.readLogs({ limit: 10 });
       expect(entries).toHaveLength(3);
-      expect(entries.map((e: PluginLogEntry) => e.level)).toEqual(["info", "warn", "error"]);
+      expect(entries.map((e: PluginLogEntry) => e.level)).toEqual(["info", "warning", "error"]);
     });
 
     it("omits data field when undefined", async () => {
@@ -69,10 +69,10 @@ describe("PluginDiagnosticLogger", () => {
   });
 
   describe("dual-write", () => {
-    it("info/warn/error call matching apiLogger method", () => {
+    it("info/warning/error call matching apiLogger method", () => {
       const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
       dlog.info("plugin.test", "e", "info msg");
-      dlog.warn("plugin.test", "e", "warn msg");
+      dlog.warning("plugin.test", "e", "warn msg");
       dlog.error("plugin.test", "e", "error msg");
       expect(apiLogger.info).toHaveBeenCalledWith("[plugin.test] info msg");
       expect(apiLogger.warn).toHaveBeenCalledWith("[plugin.test] warn msg");
@@ -104,7 +104,7 @@ describe("PluginDiagnosticLogger", () => {
       expect(entries).toHaveLength(3);
       for (const entry of entries) expect(entry.source).toBe("plugin.context");
       expect(entries[0]).toMatchObject({ level: "info", event: "info", message: "save succeeded" });
-      expect(entries[1]).toMatchObject({ level: "warn", event: "warn", message: "save slow" });
+      expect(entries[1]).toMatchObject({ level: "warning", event: "warn", message: "save slow" });
       expect(entries[2]).toMatchObject({ level: "error", event: "error", message: "save failed" });
     });
 
@@ -120,7 +120,7 @@ describe("PluginDiagnosticLogger", () => {
     async function seedEntries(dlog: PluginDiagnosticLogger) {
       dlog.debug("plugin.pipeline", "event.received", "debug msg");
       dlog.info("plugin.pipeline", "push.decided", "info pipeline");
-      dlog.warn("plugin.context", "warn", "warn context");
+      dlog.warning("plugin.context", "warn", "warn context");
       dlog.error("plugin.rpc", "ping.error", "error rpc");
       dlog.info("plugin.pipeline", "push.sent", "another pipeline info");
       await dlog.flush();
@@ -129,9 +129,9 @@ describe("PluginDiagnosticLogger", () => {
     it("filters by minimum level", async () => {
       const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
       await seedEntries(dlog);
-      const { entries } = await dlog.readLogs({ level: "warn" });
+      const { entries } = await dlog.readLogs({ level: "warning" });
       expect(entries).toHaveLength(2);
-      expect(entries.every((e: PluginLogEntry) => e.level === "warn" || e.level === "error")).toBe(true);
+      expect(entries.every((e: PluginLogEntry) => e.level === "warning" || e.level === "error")).toBe(true);
     });
 
     it("filters by source prefix", async () => {
@@ -318,16 +318,16 @@ describe("betterclaw.logs RPC response shape", () => {
     const logDir = path.join(await makeTmpDir(), "logs");
     dlog = new PluginDiagnosticLogger(logDir, mockLogger());
     dlog.info("plugin.pipeline", "push.sent", "test event", { subscriptionId: "test" });
-    dlog.warn("plugin.rpc", "ping.error", "test warning");
+    dlog.warning("plugin.rpc", "ping.error", "test warning");
     await dlog.flush();
   });
 
   it("returns entries and total matching RPC response shape", async () => {
-    const result = await dlog.readLogs({ level: "warn", limit: 10 });
+    const result = await dlog.readLogs({ level: "warning", limit: 10 });
     expect(result).toHaveProperty("entries");
     expect(result).toHaveProperty("total");
     expect(result.entries).toHaveLength(1);
-    expect(result.entries[0].level).toBe("warn");
+    expect(result.entries[0].level).toBe("warning");
   });
 
   it("source prefix filter works", async () => {
@@ -339,5 +339,55 @@ describe("betterclaw.logs RPC response shape", () => {
     const result = await dlog.readLogs({ source: "nonexistent" });
     expect(result.entries).toHaveLength(0);
     expect(result.total).toBe(0);
+  });
+});
+
+describe("diagnostic logger — 6-level taxonomy", () => {
+  it("emits notice / warning / critical with correct level strings", async () => {
+    const dir = path.join(await makeTmpDir(), "dlog-levels");
+    const calls: string[] = [];
+    const capture: PluginModuleLogger = {
+      info: (m) => calls.push(`info:${m}`),
+      warn: (m) => calls.push(`warn:${m}`),
+      error: (m) => calls.push(`error:${m}`),
+    };
+    const dlog = initDiagnosticLogger(dir, capture);
+    dlog.notice("plugin.service", "t.notice", "n");
+    dlog.warning("plugin.service", "t.warning", "w");
+    dlog.critical("plugin.service", "t.critical", "c");
+    await dlog.flush();
+    const files = (await fs.readdir(dir)).sort();
+    const content = await fs.readFile(path.join(dir, files[0]), "utf-8");
+    const levels = content.trim().split("\n").map(l => JSON.parse(l).level);
+    expect(levels).toEqual(["notice", "warning", "critical"]);
+    // SDK shim: notice → info, warning → warn, critical → error
+    expect(calls).toEqual([
+      "info:[plugin.service] n",
+      "warn:[plugin.service] w",
+      "error:[plugin.service] c",
+    ]);
+  });
+
+  it(".warn() is a deprecation shim that routes to warning and emits a one-shot console.warn", async () => {
+    _resetWarnDeprecationForTest();
+    const dir = path.join(await makeTmpDir(), "dlog-warn-shim");
+    const sdkCalls: string[] = [];
+    const capture: PluginModuleLogger = {
+      info: () => {}, warn: (m) => sdkCalls.push(m), error: () => {},
+    };
+    const origConsoleWarn = console.warn;
+    const consoleCalls: unknown[][] = [];
+    console.warn = (...args: unknown[]) => { consoleCalls.push(args); };
+    try {
+      const dlog = initDiagnosticLogger(dir, capture);
+      dlog.warn("plugin.service", "t.warn", "x");
+      dlog.warn("plugin.service", "t.warn", "y");
+      await dlog.flush();
+      expect(sdkCalls.length).toBe(2);
+      expect(consoleCalls.length).toBe(1);
+      expect(String(consoleCalls[0][0])).toMatch(/deprecated/i);
+    } finally {
+      console.warn = origConsoleWarn;
+    }
   });
 });

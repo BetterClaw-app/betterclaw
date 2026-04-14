@@ -130,7 +130,7 @@ export default {
         diagnosticLogger.info("plugin.service", "init.phase", "reactions loaded", { phase: "reactions", success: true });
       } catch (err) {
         const msg = errorMessage(err);
-        diagnosticLogger.warn("plugin.service", "init.phase", "reaction tracker load failed: " + msg, { phase: "reactions", success: false, error: msg });
+        diagnosticLogger.warning("plugin.service", "init.phase", "reaction tracker load failed: " + msg, { phase: "reactions", success: false, error: msg });
       }
       if (initialized) {
         try {
@@ -161,7 +161,7 @@ export default {
         if (payload) {
           diagnosticLogger.info("plugin.rpc", "ping.received", "JWT verified", { tier, smartMode, entitlements: payload.ent });
         } else {
-          diagnosticLogger.warn("plugin.rpc", "ping.received", "JWT verification failed", { tier, smartMode });
+          diagnosticLogger.warning("plugin.rpc", "ping.received", "JWT verification failed", { tier, smartMode });
         }
       } else {
         diagnosticLogger.info("plugin.rpc", "ping.received", "device ping", { tier, smartMode, nodeConnected: context.hasConnectedMobileNode() });
@@ -181,7 +181,7 @@ export default {
         }
         fs.writeFile(calibrationFile, JSON.stringify({ startedAt: calibrationStartedAt }), "utf8").catch((err) => {
           const msg = errorMessage(err);
-          diagnosticLogger.warn("plugin.calibration", "calibration.error", "calibration file write failed: " + msg, { error: msg });
+          diagnosticLogger.warning("plugin.calibration", "calibration.error", "calibration file write failed: " + msg, { error: msg });
         });
       }
 
