@@ -9,7 +9,7 @@ const EVENT_RE = /^[a-z][a-z0-9]*(\.[a-z0-9]+)*$/;
 const VALID_STRATEGIES = new Set(["hmacHost", "hmacUrlHost", "hmacId", "allowPlain", "drop"]);
 
 // Direct-surface call: X.LEVEL("source", "event", ...) with any X identifier.
-const DIRECT_CALL_RE = /\.(debug|info|notice|warning|error|critical)\s*\(\s*"(plugin\.[^"]+)"\s*,\s*"([^"]+)"/g;
+const DIRECT_CALL_RE = /\.(debug|info|notice|warning|warn|error|critical)\s*\(\s*"(plugin\.[^"]+)"\s*,\s*"([^"]+)"/g;
 
 // Scoped-source call: .scoped("plugin.X")
 const SCOPED_CALL_RE = /\.scoped\s*\(\s*"(plugin\.[^"]+)"/g;

@@ -53,7 +53,8 @@
 | `learner.completed` | `info` | `durationMs` |
 | `learner.failed` | `error` | — |
 | `learner.started` | `info` | `eventsCount`, `reactionsCount`, `hasMemory`, `hasPreviousProfile` |
-| `profile.updated` | `info` | `summary`, `interruptionTolerance` |
+| `parse.failed` | `warning` | — |
+| `profile.updated` | `info` | `interruptionTolerance` |
 
 ### `plugin.patterns` — export category `health` — **field-level category mapping enabled**
 
@@ -73,21 +74,21 @@
 | `event.error` | `error` | — |
 | `event.free.stored` | `info` | `subscriptionId` |
 | `event.received` | `info` | `subscriptionId`, `source` |
-| `push.decided` | `info` | `subscriptionId`, `decision`, `reason` |
-| `push.failed` | `error` | `subscriptionId`, `error` |
+| `push.decided` | `info` | `subscriptionId`, `decision` |
+| `push.failed` | `error` | `subscriptionId` |
 | `push.sent` | `info` | `subscriptionId` |
 
 ### `plugin.reactions` — export category `subscriptions`
 
 | event | level | required data |
 |---|---|---|
-| `classified` | `info` | `subscriptionId`, `status`, `reason` |
-| `classified.error` | `error` | `subscriptionId`, `error` |
+| `classified` | `info` | `subscriptionId`, `status` |
+| `classified.error` | `error` | `subscriptionId` |
 | `error` | `error` | — |
 | `info` | `info` | — |
 | `scan.completed` | `info` | `classified`, `skipped` |
 | `scan.empty` | `debug` | — |
-| `scan.error` | `error` | `error` |
+| `scan.error` | `error` | — |
 | `scan.failed` | `error` | — |
 | `scan.skipped` | `info` | `subscriptionId`, `pushedAt` |
 | `scan.started` | `info` | `pendingCount` |
@@ -127,8 +128,8 @@
 | event | level | required data |
 |---|---|---|
 | `triage.called` | `info` | `subscriptionId`, `model` |
-| `triage.fallback` | `error` | `subscriptionId`, `error`, `fallbackAction` |
-| `triage.result` | `info` | `subscriptionId`, `decision`, `reason` |
+| `triage.fallback` | `error` | `subscriptionId`, `fallbackAction` |
+| `triage.result` | `info` | `subscriptionId`, `decision` |
 
 ## Redaction manifest
 
@@ -159,7 +160,6 @@
 | `durationMs` | `allowPlain` |
 | `endpoint` | `hmacHost` |
 | `entitlements` | `allowPlain` |
-| `error` | `allowPlain` |
 | `error.authCanRetryWithDeviceToken` | `allowPlain` |
 | `error.authDetailCode` | `allowPlain` |
 | `error.authMessage` | `allowPlain` |
@@ -206,7 +206,6 @@
 | `phase` | `allowPlain` |
 | `pushedAt` | `allowPlain` |
 | `reactionsCount` | `allowPlain` |
-| `reason` | `allowPlain` |
 | `refreshToken` | `drop` |
 | `regionId` | `hmacId` |
 | `regions` | `drop` |
@@ -216,12 +215,11 @@
 | `sessionId` | `hmacId` |
 | `skipped` | `allowPlain` |
 | `smartMode` | `allowPlain` |
-| `source` | `allowPlain` |
+| `source` | `hmacId` |
 | `status` | `allowPlain` |
 | `steps` | `drop` |
 | `subscriptionId` | `hmacId` |
 | `success` | `allowPlain` |
-| `summary` | `allowPlain` |
 | `systemVersion` | `allowPlain` |
 | `target` | `hmacHost` |
 | `tier` | `allowPlain` |
