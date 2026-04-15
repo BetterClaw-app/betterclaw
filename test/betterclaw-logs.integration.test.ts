@@ -100,3 +100,53 @@ describe("betterclaw.logs RPC", () => {
     expect(h1).not.toBe(h2);
   });
 });
+
+import { resolveAnonymizationKey } from "../src/logs-rpc.js";
+import { Buffer } from "node:buffer";
+
+describe("resolveAnonymizationKey", () => {
+  const fallback = randomBytes(32);
+
+  it("returns fallback when anonymizationKey absent", () => {
+    const r = resolveAnonymizationKey({ settings: allOn() }, fallback);
+    expect("key" in r && r.key.equals(fallback)).toBe(true);
+  });
+
+  it("returns supplied key when valid 32-byte base64", () => {
+    const supplied = randomBytes(32);
+    const r = resolveAnonymizationKey(
+      { settings: allOn(), anonymizationKey: supplied.toString("base64") },
+      fallback,
+    );
+    expect("key" in r && r.key.equals(supplied)).toBe(true);
+  });
+
+  it("rejects short key with INVALID_KEY", () => {
+    const r = resolveAnonymizationKey(
+      { settings: allOn(), anonymizationKey: Buffer.alloc(16).toString("base64") },
+      fallback,
+    );
+    expect("error" in r && r.error.code).toBe("INVALID_KEY");
+  });
+
+  it("rejects long key with INVALID_KEY", () => {
+    const r = resolveAnonymizationKey(
+      { settings: allOn(), anonymizationKey: Buffer.alloc(64).toString("base64") },
+      fallback,
+    );
+    expect("error" in r && r.error.code).toBe("INVALID_KEY");
+  });
+
+  it("INVALID_KEY error never echoes the submitted key in its message", () => {
+    const suspiciousKey = Buffer.alloc(16, 0xab).toString("base64");
+    const r = resolveAnonymizationKey(
+      { settings: allOn(), anonymizationKey: suspiciousKey },
+      fallback,
+    );
+    expect("error" in r).toBe(true);
+    if ("error" in r) {
+      expect(r.error.message).not.toContain(suspiciousKey);
+      expect(JSON.stringify(r.error)).not.toContain(suspiciousKey);
+    }
+  });
+});

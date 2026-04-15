@@ -17,6 +17,41 @@ import type { PluginDiagnosticLogger } from "./diagnostic-logger.js";
  *  - the raw read saturated the 50k ceiling (older pre-filter entries dropped by readLogs).
  * In both cases the caller knows "there's more than you got."
  */
+export type LogsRpcParams = {
+  settings?: ExportSettings;
+  since?: number;
+  until?: number;
+  limit?: number;
+  anonymizationKey?: string;
+};
+
+export type LogsRpcError = { code: string; message: string };
+
+/**
+ * Resolve the HMAC key to use for this RPC call, given the caller's params
+ * and the plugin-local fallback key. Returns either the key to use or an
+ * error object suitable for `respond(false, undefined, err)`.
+ *
+ * SECURITY: error messages are static strings; they intentionally never
+ * echo the submitted `anonymizationKey` value.
+ */
+export function resolveAnonymizationKey(
+  params: LogsRpcParams,
+  fallback: Buffer,
+): { key: Buffer } | { error: LogsRpcError } {
+  if (params.anonymizationKey === undefined) return { key: fallback };
+  let decoded: Buffer;
+  try {
+    decoded = Buffer.from(params.anonymizationKey, "base64");
+  } catch {
+    return { error: { code: "INVALID_KEY", message: "anonymizationKey must be base64" } };
+  }
+  if (decoded.length !== 32) {
+    return { error: { code: "INVALID_KEY", message: "anonymizationKey must decode to 32 bytes" } };
+  }
+  return { key: decoded };
+}
+
 export async function handleLogsRpc(
   params: {
     settings: ExportSettings;
