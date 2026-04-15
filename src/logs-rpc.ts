@@ -40,12 +40,14 @@ export function resolveAnonymizationKey(
   fallback: Buffer,
 ): { key: Buffer } | { error: LogsRpcError } {
   if (params.anonymizationKey === undefined) return { key: fallback };
-  let decoded: Buffer;
-  try {
-    decoded = Buffer.from(params.anonymizationKey, "base64");
-  } catch {
-    return { error: { code: "INVALID_KEY", message: "anonymizationKey must be base64" } };
+  if (typeof params.anonymizationKey !== "string") {
+    return { error: { code: "INVALID_KEY", message: "anonymizationKey must be a string" } };
   }
+  // Buffer.from with "base64" silently strips invalid characters rather
+  // than throwing, so the length check below is the real gate on malformed
+  // base64. The explicit typeof guard above handles unvalidated RPC input
+  // where the caller sent a non-string value.
+  const decoded = Buffer.from(params.anonymizationKey, "base64");
   if (decoded.length !== 32) {
     return { error: { code: "INVALID_KEY", message: "anonymizationKey must decode to 32 bytes" } };
   }
