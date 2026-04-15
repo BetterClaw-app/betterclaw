@@ -3,6 +3,9 @@ import type { PluginConfig, DeviceConfig } from "./types.js";
 import { errorMessage } from "./types.js";
 import { errorFields } from "./errors.js";
 import { initDiagnosticLogger } from "./diagnostic-logger.js";
+import { handleLogsRpc } from "./logs-rpc.js";
+import type { ExportSettings } from "./redactor.js";
+import { randomBytes } from "node:crypto";
 import { ContextManager } from "./context.js";
 import { createGetContextTool } from "./tools/get-context.js";
 import { EventLog } from "./events.js";
@@ -69,6 +72,7 @@ export default {
     const config = resolveConfig(api.pluginConfig as Record<string, unknown> | undefined);
     const stateDir = api.runtime.state.resolveStateDir();
     const diagnosticLogger = initDiagnosticLogger(path.join(stateDir, "logs"), api.logger);
+    const redactionKey = randomBytes(32);
 
     diagnosticLogger.info("plugin.service", "loaded", "plugin loaded", { model: config.triageModel, budget: config.pushBudgetPerDay });
 
@@ -379,16 +383,20 @@ export default {
     // Diagnostic logs RPC — read structured log entries
     api.registerGatewayMethod("betterclaw.logs", async ({ params, respond }) => {
       try {
-        const p = (params ?? {}) as Record<string, unknown>;
-        const result = await diagnosticLogger.readLogs({
-          since: typeof p.since === "number" ? p.since : undefined,
-          limit: typeof p.limit === "number" ? p.limit : undefined,
-          level: typeof p.level === "string" ? p.level : undefined,
-          source: typeof p.source === "string" ? p.source : undefined,
-        });
+        const p = params as { settings?: ExportSettings; since?: number; until?: number; limit?: number };
+        if (!p.settings) {
+          respond(false, undefined, { code: "MISSING_SETTINGS", message: "settings is required" });
+          return;
+        }
+        const result = await handleLogsRpc(
+          { settings: p.settings, since: p.since, until: p.until, limit: p.limit },
+          diagnosticLogger,
+          redactionKey,
+        );
         respond(true, result);
       } catch (err) {
-        respond(false, undefined, { code: "LOGS_READ_FAILED", message: errorMessage(err) });
+        diagnosticLogger.error("plugin.rpc", "logs.error", "logs RPC failed", errorFields(err));
+        respond(false, undefined, { code: "LOGS_ERROR", message: "logs RPC failed" });
       }
     });
 
