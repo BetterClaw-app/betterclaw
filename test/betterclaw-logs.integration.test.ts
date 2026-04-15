@@ -75,4 +75,28 @@ describe("betterclaw.logs RPC", () => {
     const res = await handleLogsRpc({ settings: allOn() }, dlog, key);
     expect(typeof res.entries[0].data).toBe("string");
   });
+
+  it("uses the supplied key deterministically across calls", async () => {
+    dlog.info("plugin.rpc", "ping.received", "ok", { host: "api.example.com" });
+    await dlog.flush();
+    const suppliedKey = randomBytes(32);
+    const r1 = await handleLogsRpc({ settings: allOn() }, dlog, suppliedKey);
+    const r2 = await handleLogsRpc({ settings: allOn() }, dlog, suppliedKey);
+    const h1 = JSON.parse(r1.entries[0].data!).host;
+    const h2 = JSON.parse(r2.entries[0].data!).host;
+    expect(h1).toBe(h2);
+    expect(h1).toMatch(/^hmac:/);
+  });
+
+  it("produces a different hash when the key differs", async () => {
+    dlog.info("plugin.rpc", "ping.received", "ok", { host: "api.example.com" });
+    await dlog.flush();
+    const k1 = randomBytes(32);
+    const k2 = randomBytes(32);
+    const r1 = await handleLogsRpc({ settings: allOn() }, dlog, k1);
+    const r2 = await handleLogsRpc({ settings: allOn() }, dlog, k2);
+    const h1 = JSON.parse(r1.entries[0].data!).host;
+    const h2 = JSON.parse(r2.entries[0].data!).host;
+    expect(h1).not.toBe(h2);
+  });
 });
