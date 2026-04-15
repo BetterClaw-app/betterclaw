@@ -3,8 +3,7 @@ import type { PluginConfig, DeviceConfig } from "./types.js";
 import { errorMessage } from "./types.js";
 import { errorFields } from "./errors.js";
 import { initDiagnosticLogger } from "./diagnostic-logger.js";
-import { handleLogsRpc } from "./logs-rpc.js";
-import type { ExportSettings } from "./redactor.js";
+import { handleLogsRpc, resolveAnonymizationKey, type LogsRpcParams } from "./logs-rpc.js";
 import { randomBytes } from "node:crypto";
 import { ContextManager } from "./context.js";
 import { createGetContextTool } from "./tools/get-context.js";
@@ -383,18 +382,26 @@ export default {
     // Diagnostic logs RPC — read structured log entries
     api.registerGatewayMethod("betterclaw.logs", async ({ params, respond }) => {
       try {
-        const p = params as { settings?: ExportSettings; since?: number; until?: number; limit?: number };
+        const p = params as LogsRpcParams;
         if (!p.settings) {
           respond(false, undefined, { code: "MISSING_SETTINGS", message: "settings is required" });
+          return;
+        }
+        const keyResult = resolveAnonymizationKey(p, redactionKey);
+        if ("error" in keyResult) {
+          respond(false, undefined, keyResult.error);
           return;
         }
         const result = await handleLogsRpc(
           { settings: p.settings, since: p.since, until: p.until, limit: p.limit },
           diagnosticLogger,
-          redactionKey,
+          keyResult.key,
         );
         respond(true, result);
       } catch (err) {
+        // SECURITY: never include `params` in this log — anonymizationKey is
+        // secret, and the raw params object carries it. errorFields() on
+        // the error object alone is safe (it captures message/stack only).
         diagnosticLogger.error("plugin.rpc", "logs.error", "logs RPC failed", errorFields(err));
         respond(false, undefined, { code: "LOGS_ERROR", message: "logs RPC failed" });
       }
