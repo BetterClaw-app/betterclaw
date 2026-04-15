@@ -587,23 +587,39 @@ describe("plugin registration", () => {
   // betterclaw.logs
   // -------------------------------------------------------------------------
   describe("betterclaw.logs", () => {
-    it("delegates to diagnostic logger readLogs", async () => {
+    it("requires settings and returns redacted envelope", async () => {
       const { initDiagnosticLogger } = await import("../src/diagnostic-logger.js");
       const mockInit = initDiagnosticLogger as ReturnType<typeof vi.fn>;
 
-      // Ensure readLogs returns expected value
       const loggerInstance = mockInit.mock.results[0]?.value ?? mockInit();
       loggerInstance.readLogs.mockResolvedValue({ entries: [], total: 0 });
 
       const api = await registerPlugin();
 
-      // Get the logger instance used by this registration
       const lastLogger = mockInit.mock.results[mockInit.mock.results.length - 1].value;
-      lastLogger.readLogs.mockResolvedValue({ entries: ["test-entry"], total: 1 });
+      lastLogger.readLogs.mockResolvedValue({
+        entries: [
+          { timestamp: Date.now() / 1000, level: "info", source: "plugin.service", event: "loaded", message: "m" },
+        ],
+        total: 1,
+      });
 
-      const res = await invokeMethod(api, "betterclaw.logs", { limit: 10, level: "error" });
+      // Missing settings → structured error
+      const bad = await invokeMethod(api, "betterclaw.logs", { limit: 10 });
+      expect(bad.ok).toBe(false);
+      expect(bad.error?.code).toBe("MISSING_SETTINGS");
+
+      // Valid settings → envelope
+      const allOn = {
+        connection: true, heartbeat: true, commands: true, dns: true,
+        lifecycle: true, battery: true,
+        subscriptions: true, health: true, location: true, geofence: true,
+      };
+      const res = await invokeMethod(api, "betterclaw.logs", { settings: allOn, limit: 10 });
       expect(res.ok).toBe(true);
-      expect(res.result).toEqual({ entries: ["test-entry"], total: 1 });
+      expect(res.result.schemaVersion).toBe(1);
+      expect(res.result.manifestVersion).toBeGreaterThan(0);
+      expect(Array.isArray(res.result.entries)).toBe(true);
       expect(lastLogger.readLogs).toHaveBeenCalled();
     });
   });
