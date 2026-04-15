@@ -1,7 +1,7 @@
 import type { ReactionStatus } from "./types.js";
 import type { ReactionTracker } from "./reactions.js";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { errorMessage } from "./types.js";
+import { errorFields } from "./errors.js";
 import { dlog } from "./diagnostic-logger.js";
 
 // --- Types ---
@@ -155,8 +155,7 @@ export async function scanPendingReactions(deps: ScanDeps): Promise<void> {
     });
     messages = fetched as typeof messages;
   } catch (err) {
-    const msg = errorMessage(err);
-    dlog.error("plugin.reactions", "scan.error", "failed to fetch session messages", { error: msg });
+    dlog.error("plugin.reactions", "scan.error", "failed to fetch session messages", errorFields(err));
     return;
   }
 
@@ -220,8 +219,7 @@ export async function scanPendingReactions(deps: ScanDeps): Promise<void> {
       classified++;
       dlog.info("plugin.reactions", "classified", "reaction classified", { subscriptionId: reaction.subscriptionId, status: classificationResult.status, reason: classificationResult.reason });
     } catch (err) {
-      const msg = errorMessage(err);
-      dlog.error("plugin.reactions", "classified.error", "error classifying reaction", { subscriptionId: reaction.subscriptionId, error: msg });
+      dlog.error("plugin.reactions", "classified.error", "error classifying reaction", { subscriptionId: reaction.subscriptionId, ...errorFields(err) });
     }
   }
 

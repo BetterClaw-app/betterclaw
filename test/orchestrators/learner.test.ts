@@ -6,7 +6,7 @@ import type { RunLearnerDeps } from "../../src/learner.js";
 import { makeTmpDir } from "../helpers.js";
 
 vi.mock("../../src/diagnostic-logger.js", () => ({
-  dlog: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  dlog: { info: vi.fn(), warn: vi.fn(), warning: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
 function makeSubagentApi(responseContent: string) {

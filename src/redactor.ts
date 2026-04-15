@@ -135,9 +135,9 @@ export const MANIFEST: {
         "event.received":    { level: "info",  requiredKeys: ["subscriptionId", "source"] },
         "event.free.stored": { level: "info",  requiredKeys: ["subscriptionId"] },
         "event.blocked":     { level: "info",  requiredKeys: ["subscriptionId"] },
-        "push.decided":      { level: "info",  requiredKeys: ["subscriptionId", "decision", "reason"] },
+        "push.decided":      { level: "info",  requiredKeys: ["subscriptionId", "decision"] },
         "push.sent":         { level: "info",  requiredKeys: ["subscriptionId"] },
-        "push.failed":       { level: "error", requiredKeys: ["subscriptionId", "error"] },
+        "push.failed":       { level: "error", requiredKeys: ["subscriptionId"] },
         "dedup.checked":     { level: "debug", requiredKeys: ["subscriptionId", "currentLevel", "lastPushedLevel", "deduplicated"] },
       },
     },
@@ -147,10 +147,10 @@ export const MANIFEST: {
         "scan.failed":      { level: "error",   requiredKeys: [] },
         "scan.empty":       { level: "debug",   requiredKeys: [] },
         "scan.started":     { level: "info",    requiredKeys: ["pendingCount"] },
-        "scan.error":       { level: "error",   requiredKeys: ["error"] },
+        "scan.error":       { level: "error",   requiredKeys: [] },
         "scan.skipped":     { level: "info",    requiredKeys: ["subscriptionId", "pushedAt"] },
-        "classified":       { level: "info",    requiredKeys: ["subscriptionId", "status", "reason"] },
-        "classified.error": { level: "error",   requiredKeys: ["subscriptionId", "error"] },
+        "classified":       { level: "info",    requiredKeys: ["subscriptionId", "status"] },
+        "classified.error": { level: "error",   requiredKeys: ["subscriptionId"] },
         "scan.completed":   { level: "info",    requiredKeys: ["classified", "skipped"] },
         "info": { level: "info",  requiredKeys: [] },  // scoped
         "warn": { level: "warning", requiredKeys: [] },  // scoped
@@ -163,15 +163,16 @@ export const MANIFEST: {
         "learner.completed": { level: "info",  requiredKeys: ["durationMs"] },
         "learner.failed":    { level: "error", requiredKeys: [] },
         "learner.started":   { level: "info",  requiredKeys: ["eventsCount", "reactionsCount", "hasMemory", "hasPreviousProfile"] },
-        "profile.updated":   { level: "info",  requiredKeys: ["summary", "interruptionTolerance"] },
+        "profile.updated":   { level: "info",  requiredKeys: ["interruptionTolerance"] },
+        "parse.failed":      { level: "warning", requiredKeys: [] },
       },
     },
     "plugin.triage": {
       exportCategory: "lifecycle",
       events: {
         "triage.called":   { level: "info",  requiredKeys: ["subscriptionId", "model"] },
-        "triage.result":   { level: "info",  requiredKeys: ["subscriptionId", "decision", "reason"] },
-        "triage.fallback": { level: "error", requiredKeys: ["subscriptionId", "error", "fallbackAction"] },
+        "triage.result":   { level: "info",  requiredKeys: ["subscriptionId", "decision"] },
+        "triage.fallback": { level: "error", requiredKeys: ["subscriptionId", "fallbackAction"] },
       },
     },
     "plugin.context": {
@@ -243,16 +244,23 @@ export const MANIFEST: {
     version: "allowPlain", appVersion: "allowPlain", buildNumber: "allowPlain",
     systemVersion: "allowPlain", deviceModel: "allowPlain",
     // pipeline / triage / reactions / learner / patterns operational scalars
-    source: "allowPlain", decision: "allowPlain", reason: "allowPlain",
+    // NOTE: `source` is `DeviceEvent.source`, an open string (e.g. "geofence.triggered",
+    // "health.steps", arbitrary user-defined sources). HMAC'd to preserve cardinality
+    // for debug while denying plaintext exposure of possibly-sensitive source names.
+    source: "hmacId",
+    decision: "allowPlain",
     status: "allowPlain", model: "allowPlain", fallbackAction: "allowPlain",
-    error: "allowPlain",
     pendingCount: "allowPlain", pushedAt: "allowPlain",
     classified: "allowPlain", skipped: "allowPlain",
     currentLevel: "allowPlain", lastPushedLevel: "allowPlain", deduplicated: "allowPlain",
     eventsCount: "allowPlain", reactionsCount: "allowPlain",
     hasMemory: "allowPlain", hasPreviousProfile: "allowPlain",
     eventsProcessed: "allowPlain",
-    summary: "allowPlain", interruptionTolerance: "allowPlain",
+    interruptionTolerance: "allowPlain",
+    // NOTE: `error`, `reason`, `summary` intentionally absent. They carry free-form
+    // content (Error.message / LLM output) that can embed URLs, paths, identifiers.
+    // Structured error data flows via the error.* carve-out below; reason/summary
+    // call sites still emit the field but default-deny drops it at redaction time.
     // error.*
     "error.type":                        "allowPlain",
     "error.message":                     "allowPlain",

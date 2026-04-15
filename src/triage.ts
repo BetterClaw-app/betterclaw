@@ -1,6 +1,6 @@
 import type { DeviceEvent, TriageProfile } from "./types.js";
-import { errorMessage } from "./types.js";
 import type { ContextManager } from "./context.js";
+import { errorFields } from "./errors.js";
 import { dlog } from "./diagnostic-logger.js";
 
 export interface TriageResult {
@@ -151,10 +151,10 @@ export async function triageEvent(
     });
     return result;
   } catch (err) {
-    dlog.error("plugin.triage", "triage.fallback", `triage failed, falling back to drop: ${errorMessage(err)}`, {
+    dlog.error("plugin.triage", "triage.fallback", "triage failed, falling back to drop", {
       subscriptionId: event.subscriptionId,
-      error: errorMessage(err),
       fallbackAction: "drop",
+      ...errorFields(err),
     });
     return { push: false, reason: `triage call failed: ${err} — defaulting to drop` };
   }

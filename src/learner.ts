@@ -199,7 +199,7 @@ export async function runLearner(deps: RunLearnerDeps): Promise<void> {
 
   // 13. Save if valid
   if (!newProfile && content) {
-    dlog.warn("plugin.learner", "parse.failed", "failed to parse triage profile from LLM response", {
+    dlog.warning("plugin.learner", "parse.failed", "failed to parse triage profile from LLM response", {
       rawContent: content.slice(0, 200),
     });
   }

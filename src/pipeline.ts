@@ -4,10 +4,10 @@ import type { EventLog } from "./events.js";
 import type { RulesEngine } from "./filter.js";
 import type { ReactionTracker } from "./reactions.js";
 import type { DeviceEvent, DeviceContext, PluginConfig } from "./types.js";
-import { errorMessage } from "./types.js";
 import { triageEvent } from "./triage.js";
 import { loadTriageProfile } from "./learner.js";
 import { requireEntitlement } from "./jwt.js";
+import { errorFields } from "./errors.js";
 import { dlog } from "./diagnostic-logger.js";
 
 export interface PipelineDeps {
@@ -164,8 +164,7 @@ async function pushToAgent(deps: PipelineDeps, event: DeviceEvent, reason: strin
     dlog.info("plugin.pipeline", "push.sent", "event pushed to agent", { subscriptionId: event.subscriptionId });
     return true;
   } catch (err) {
-    const msg = errorMessage(err);
-    dlog.error("plugin.pipeline", "push.failed", "failed to push event to agent", { subscriptionId: event.subscriptionId, error: msg });
+    dlog.error("plugin.pipeline", "push.failed", "failed to push event to agent", { subscriptionId: event.subscriptionId, ...errorFields(err) });
     return false;
   }
 }
