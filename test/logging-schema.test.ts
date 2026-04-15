@@ -100,6 +100,43 @@ describe("schema lint — call-site scan", () => {
   });
 });
 
+describe("schema lint — message must be a literal", () => {
+  // Matches the opening of a `dlog.LEVEL(` or `diagnosticLogger.LEVEL(` call
+  // where the first two args are string literals. Captures the first
+  // non-whitespace character of the third argument (the `message`).
+  // If that character is `"` the message is a plain literal (OK). Anything
+  // else — backtick (template), identifier, open paren (function call),
+  // concatenation on a naked identifier — fails the lint. This is the
+  // key-based redactor's safety property: `message` is never redacted,
+  // so it MUST be static.
+  const MESSAGE_ARG_RE =
+    /\b(?:dlog|diagnosticLogger)\.(debug|info|notice|warning|warn|error|critical)\s*\(\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*(\S)/g;
+
+  it("every direct dlog / diagnosticLogger call's message arg is a string literal", () => {
+    const srcFiles = walk(join(process.cwd(), "src"));
+    const violations: string[] = [];
+    for (const file of srcFiles) {
+      if (file.endsWith("diagnostic-logger.ts")) continue;
+      const content = readFileSync(file, "utf-8");
+      const rel = relative(process.cwd(), file);
+      let m: RegExpExecArray | null;
+      MESSAGE_ARG_RE.lastIndex = 0;
+      while ((m = MESSAGE_ARG_RE.exec(content)) !== null) {
+        const firstChar = m[2];
+        if (firstChar !== '"') {
+          // Compute 1-based line number of the match.
+          const line = content.slice(0, m.index).split("\n").length;
+          violations.push(`${rel}:${line} — message arg starts with \`${firstChar}\` (expected string literal)`);
+        }
+      }
+    }
+    expect(
+      violations,
+      `Non-literal message args (must be a plain "..." string):\n${violations.join("\n")}`
+    ).toEqual([]);
+  });
+});
+
 describe("schema lint — console.* carve-out", () => {
   it("bans console.(log|warn|error|info|debug) outside annotated lines", () => {
     const srcFiles = walk(join(process.cwd(), "src"));

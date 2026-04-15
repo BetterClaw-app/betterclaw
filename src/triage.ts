@@ -144,7 +144,7 @@ export async function triageEvent(
     }
 
     const result = parseTriageResponse(content);
-    dlog.info("plugin.triage", "triage.result", `triage decision: ${result.push ? "push" : "drop"}`, {
+    dlog.info("plugin.triage", "triage.result", "triage decision", {
       subscriptionId: event.subscriptionId,
       decision: result.push ? "push" : "drop",
       reason: result.reason,

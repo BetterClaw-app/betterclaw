@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { errorFields } from "../src/errors.js";
+import { errorFields, scrubStack } from "../src/errors.js";
 
 describe("errorFields", () => {
   it("extracts type, message, stack for plain Error", () => {
@@ -46,6 +46,29 @@ describe("errorFields", () => {
     expect(bCause["error.message"]).toBe("b");
     const aAgain = bCause["error.cause"] as Record<string, unknown>;
     expect(aAgain["error.message"]).toBe("<cycle>");
+  });
+
+  it("scrubs absolute repo paths from error.stack", () => {
+    const err = new Error("boom");
+    err.stack =
+      "Error: boom\n" +
+      "    at foo (/Users/max/Documents/VSC_Projects/betterclaw-plugin/src/pipeline.ts:167:5)\n" +
+      "    at bar (/Users/max/Documents/VSC_Projects/betterclaw-plugin/src/errors.ts:12:10)\n" +
+      "    at node:internal/process/task_queues:95:5";
+    const f = errorFields(err);
+    const stack = f["error.stack"] as string;
+    expect(stack).toContain("<repo>/src/pipeline.ts:167:5");
+    expect(stack).toContain("<repo>/src/errors.ts:12:10");
+    expect(stack).toContain("node:internal/process/task_queues:95:5");
+    expect(stack).not.toContain("/Users/max");
+    expect(stack).toContain("at foo");
+    expect(stack).toContain("at bar");
+  });
+
+  it("scrubStack is a pure helper on arbitrary strings", () => {
+    const input = "frame /Users/alice/code/betterclaw-plugin/src/x.ts:1:1 and /opt/ci/betterclaw-plugin/src/y.ts:2:2";
+    const out = scrubStack(input);
+    expect(out).toBe("frame <repo>/src/x.ts:1:1 and <repo>/src/y.ts:2:2");
   });
 
   it("caps cause chain depth at 8", () => {

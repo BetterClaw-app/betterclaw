@@ -9,6 +9,18 @@ export function errorFields(err: unknown): Record<string, unknown> {
 
 const MAX_CAUSE_DEPTH = 8;
 
+// Matches any absolute path ending in `/betterclaw-plugin/` (the repo root).
+// Node stack frames embed absolute filesystem paths like
+// `/Users/max/Documents/VSC_Projects/betterclaw-plugin/src/pipeline.ts:167:5`,
+// which leak the developer's layout when exported. Scrubbing reduces these to
+// `<repo>/src/pipeline.ts:167:5` while leaving function names, line numbers,
+// and non-repo frames (node internals, node_modules) intact.
+const REPO_ROOT_RE = /(?:\/[^\s:()]+)*\/betterclaw-plugin\//g;
+
+export function scrubStack(stack: string): string {
+  return stack.replace(REPO_ROOT_RE, "<repo>/");
+}
+
 function walk(err: unknown, seen: WeakSet<object>, depth: number): Record<string, unknown> {
   const out: Record<string, unknown> = {};
 
@@ -21,7 +33,7 @@ function walk(err: unknown, seen: WeakSet<object>, depth: number): Record<string
     seen.add(err);
     out["error.type"] = err.constructor.name;
     out["error.message"] = err.message;
-    if (typeof err.stack === "string") out["error.stack"] = err.stack;
+    if (typeof err.stack === "string") out["error.stack"] = scrubStack(err.stack);
     if (err.cause !== undefined && depth < MAX_CAUSE_DEPTH) {
       out["error.cause"] = walk(err.cause, seen, depth + 1);
     }
