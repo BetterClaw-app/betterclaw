@@ -11,6 +11,7 @@
 - Data keys: camelCase; JSON-legal scalars only. The `error.*` dotted keys are a named carve-out emitted by `errorFields()`.
 - Levels: `debug / info / notice / warning / error / critical`. Plugin emits 4 today; `notice` and `critical` are reserved slots.
 - Timestamps: Unix seconds as float (matches iOS `TimeInterval`).
+- **Fields not redacted:** `timestamp`, `level`, `source`, `event`, and `message` pass through unmodified. Consequence: `message` MUST be a static string literal at the call site — the schema lint enforces this. All dynamic content must go in `data` under a declared key.
 
 ## Sources
 
@@ -130,6 +131,23 @@
 | `triage.called` | `info` | `subscriptionId`, `model` |
 | `triage.fallback` | `error` | `subscriptionId`, `fallbackAction` |
 | `triage.result` | `info` | `subscriptionId`, `decision` |
+
+## Export categories
+
+Each category is a boolean in `ExportSettings`. Disabling a category drops all entries from sources mapped to it (field-level implications still apply per-field).
+
+| category | sources |
+|---|---|
+| `connection` | — |
+| `heartbeat` | — |
+| `commands` | — |
+| `dns` | — |
+| `lifecycle` | `plugin.calibration`, `plugin.events`, `plugin.filter`, `plugin.learner`, `plugin.pipeline`, `plugin.rpc`, `plugin.service`, `plugin.triage` |
+| `battery` | — |
+| `subscriptions` | `plugin.reactions` |
+| `health` | `plugin.context`, `plugin.patterns` |
+| `location` | — |
+| `geofence` | — |
 
 ## Redaction manifest
 
