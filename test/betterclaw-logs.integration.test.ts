@@ -149,4 +149,20 @@ describe("resolveAnonymizationKey", () => {
       expect(JSON.stringify(r.error)).not.toContain(suspiciousKey);
     }
   });
+
+  it("rejects non-string anonymizationKey with INVALID_KEY and never echoes the submitted value", () => {
+    const suspiciousValue = 12345;
+    // Type cast: the runtime contract accepts `unknown` from RPC params;
+    // the static type is only useful at compile time.
+    const r = resolveAnonymizationKey(
+      { settings: allOn(), anonymizationKey: suspiciousValue as unknown as string },
+      randomBytes(32),
+    );
+    expect("error" in r).toBe(true);
+    if ("error" in r) {
+      expect(r.error.code).toBe("INVALID_KEY");
+      expect(r.error.message).not.toContain(String(suspiciousValue));
+      expect(JSON.stringify(r.error)).not.toContain(String(suspiciousValue));
+    }
+  });
 });
