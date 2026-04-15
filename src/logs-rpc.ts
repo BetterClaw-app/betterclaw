@@ -12,8 +12,10 @@ import type { PluginDiagnosticLogger } from "./diagnostic-logger.js";
  * @param key                  HMAC key for redaction strategies. Required when any
  *                             sensitive category is enabled.
  *
- * Returns entries newest-first. `truncated` is set if the post-filter count
- * exceeded `limit` (older entries were dropped to preserve recency).
+ * Returns entries newest-first. `truncated` is set if either:
+ *  - the post-filter count exceeded `limit` (older matches dropped to preserve recency), or
+ *  - the raw read saturated the 50k ceiling (older pre-filter entries dropped by readLogs).
+ * In both cases the caller knows "there's more than you got."
  */
 export async function handleLogsRpc(
   params: {
@@ -31,11 +33,13 @@ export async function handleLogsRpc(
   truncated: boolean;
 }> {
   const limit = params.limit ?? 10_000;
+  const RAW_CEILING = 50_000;
 
   const { entries: raw } = await dlog.readLogs({
     since: params.since,
-    limit: 50_000,
+    limit: RAW_CEILING,
   });
+  const rawSaturated = raw.length >= RAW_CEILING;
 
   const redacted: RedactedEntry[] = [];
   let postFilterCount = 0;
@@ -54,6 +58,6 @@ export async function handleLogsRpc(
     schemaVersion: 1,
     manifestVersion: MANIFEST.manifestVersion,
     entries: redacted,
-    truncated: postFilterCount > limit,
+    truncated: postFilterCount > limit || rawSaturated,
   };
 }
