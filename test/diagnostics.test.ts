@@ -308,7 +308,11 @@ describe("PluginDiagnosticLogger", () => {
       // Forge a file with three entries sharing the same timestamp, and one strictly later.
       await fs.mkdir(logDir, { recursive: true });
       const today = new Date().toISOString().slice(0, 10);
-      const sharedTs = 1000;
+      // Timestamps must be within today's day-bounds so the file-skip range
+      // filter keeps the file AND the proactive CURSOR_EXPIRED check (which
+      // rejects skip.ts < earliestStartOfDay) does not reject the cursor.
+      const startOfDay = new Date(today + "T00:00:00").getTime() / 1000;
+      const sharedTs = startOfDay + 1000;
       const lines = [
         { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "a" },
         { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "b" },
@@ -330,7 +334,8 @@ describe("PluginDiagnosticLogger", () => {
     it("skipUntil with idx=n skips exactly n entries within the same-ts run", async () => {
       await fs.mkdir(logDir, { recursive: true });
       const today = new Date().toISOString().slice(0, 10);
-      const sharedTs = 2000;
+      const startOfDay = new Date(today + "T00:00:00").getTime() / 1000;
+      const sharedTs = startOfDay + 2000;
       const lines = [
         { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "a" },
         { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "b" },
@@ -355,7 +360,8 @@ describe("PluginDiagnosticLogger", () => {
       // must carry cumulative (not per-page) idx so paging terminates.
       await fs.mkdir(logDir, { recursive: true });
       const today = new Date().toISOString().slice(0, 10);
-      const sharedTs = 3000;
+      const startOfDay = new Date(today + "T00:00:00").getTime() / 1000;
+      const sharedTs = startOfDay + 3000;
       const lines = [
         { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "a" },
         { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "b" },

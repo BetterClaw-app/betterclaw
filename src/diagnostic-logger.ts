@@ -4,6 +4,20 @@ import type { PluginModuleLogger, PluginLogEntry } from "./types.js";
 
 const LEVEL_ORDER = ["debug", "info", "notice", "warning", "error", "critical"] as const;
 
+/**
+ * Returns true iff `ts` (Unix seconds) falls within the day boundaries encoded
+ * in a `diagnostic-YYYY-MM-DD.jsonl` filename: [startOfDay, startOfDay + 86400).
+ * Used for reactive CURSOR_EXPIRED detection: an ENOENT on a cursor-resumed
+ * file whose day bounds contain the cursor's `ts` signals rotation/deletion
+ * of the file we were resuming from.
+ */
+function dayBoundsInclude(filename: string, ts: number): boolean {
+  const match = filename.match(/diagnostic-(\d{4}-\d{2}-\d{2})\.jsonl/);
+  if (!match) return false;
+  const startOfDay = new Date(match[1] + "T00:00:00").getTime() / 1000;
+  return ts >= startOfDay && ts < startOfDay + 86400;
+}
+
 /** Lean interface for module-facing logging. Modules import `dlog` and call these methods. */
 export interface DiagnosticLogWriter {
   debug(source: string, event: string, message: string, data?: Record<string, unknown>): void;
@@ -176,6 +190,26 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
       return { entries: [], total: 0, _cursorState: null };
     }
 
+    // Proactive CURSOR_EXPIRED (I7 pair): if the caller resumed with a cursor
+    // but the file backing that resume point no longer exists, we must fail
+    // loud instead of silently returning a narrower result. Two sub-cases:
+    //   (a) no files retained at all — cursor can't point anywhere useful;
+    //   (b) cursor's `ts` predates the start-of-day of the oldest retained
+    //       file (rotation trimmed the day we were paging through).
+    if (skip) {
+      if (files.length === 0) {
+        throw new Error("CURSOR_EXPIRED");
+      }
+      const earliest = files[0];
+      const match = earliest.match(/diagnostic-(\d{4}-\d{2}-\d{2})\.jsonl/);
+      if (match) {
+        const earliestStartOfDay = new Date(match[1] + "T00:00:00").getTime() / 1000;
+        if (skip.ts < earliestStartOfDay) {
+          throw new Error("CURSOR_EXPIRED");
+        }
+      }
+    }
+
     const allEntries: PluginLogEntry[] = [];
 
     for (const file of files) {
@@ -191,7 +225,13 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
       let content: string;
       try {
         content = await fs.readFile(path.join(this.logDir, file), "utf-8");
-      } catch {
+      } catch (err: any) {
+        if (err && err.code === "ENOENT" && skip && dayBoundsInclude(file, skip.ts)) {
+          // Reactive CURSOR_EXPIRED: a cursor-resumed read raced with rotation
+          // or manual deletion on the file whose day bounds contain our resume
+          // point. Fail loud so the caller knows to restart pagination.
+          throw new Error("CURSOR_EXPIRED");
+        }
         continue;
       }
 
