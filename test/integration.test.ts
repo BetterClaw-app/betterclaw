@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import zlib from "node:zlib";
 import { makeTmpDir } from "./helpers.js";
 
 // Module-level mocks — must be before imports that use them
@@ -619,9 +620,12 @@ describe("plugin registration", () => {
       expect(res.ok).toBe(true);
       expect(res.result.schemaVersion).toBe(1);
       expect(res.result.manifestVersion).toBeGreaterThan(0);
-      // Task 4: entries is a plain JSON string; Task 5 wraps it in base64(gzip).
+      // Task 5: entries is base64-encoded gzipped JSON.
       expect(typeof res.result.entries).toBe("string");
-      expect(Array.isArray(JSON.parse(res.result.entries))).toBe(true);
+      const decompressed = zlib
+        .gunzipSync(Buffer.from(res.result.entries, "base64"))
+        .toString("utf8");
+      expect(Array.isArray(JSON.parse(decompressed))).toBe(true);
       expect(lastLogger.readLogs).toHaveBeenCalled();
     });
   });

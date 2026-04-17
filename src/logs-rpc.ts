@@ -1,3 +1,4 @@
+import zlib from "node:zlib";
 import { redactEntry, MANIFEST, type ExportSettings, type RedactedEntry } from "./redactor.js";
 import type { PluginDiagnosticLogger } from "./diagnostic-logger.js";
 
@@ -47,9 +48,10 @@ export function decodeCursor(s: string): CursorState {
  * are more entries beyond this page; pass it back as `after` to continue.
  * `truncated` flags a raw-read saturation at the 50k ceiling (anomaly only).
  *
- * The `entries` field is a plain JSON string in Task 4; Task 5 will wrap
- * it in base64(gzip(...)) for iOS tunnel friendliness. The wire type stays
- * `string` across both tasks.
+ * The `entries` field is always base64-encoded gzipped JSON (Task 5):
+ * the wire value is `base64(gzip(JSON.stringify(redacted)))`. iOS callers
+ * must base64-decode then gunzip before JSON-parsing. The wire type stays
+ * `string`.
  */
 export type LogsRpcParams = {
   settings?: ExportSettings;
@@ -140,10 +142,14 @@ export async function handleLogsRpc(
 
   const cursor = _cursorState ? encodeCursor(_cursorState) : null;
 
+  const entriesJson = JSON.stringify(redacted);
+  const gzipped = zlib.gzipSync(Buffer.from(entriesJson, "utf8"));
+  const entries = gzipped.toString("base64");
+
   return {
     schemaVersion: 1,
     manifestVersion: MANIFEST.manifestVersion,
-    entries: JSON.stringify(redacted),
+    entries,
     cursor,
     truncated,
   };
