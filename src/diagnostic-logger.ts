@@ -149,7 +149,7 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
     };
   }
 
-  async readLogs(opts: { since?: number; limit?: number; level?: string; source?: string } = {}): Promise<{ entries: PluginLogEntry[]; total: number }> {
+  async readLogs(opts: { since?: number; until?: number; limit?: number; level?: string; source?: string; skipUntil?: { ts: number; idx: number } } = {}): Promise<{ entries: PluginLogEntry[]; total: number; _cursorState: { ts: number; idx: number } | null }> {
     const release = await this._acquireRead();
     try {
       return await this._readLogsInner(opts);
@@ -158,28 +158,34 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
     }
   }
 
-  private async _readLogsInner(opts: { since?: number; limit?: number; level?: string; source?: string } = {}): Promise<{ entries: PluginLogEntry[]; total: number }> {
-    const since = opts.since ?? (Date.now() / 1000 - 86400);
+  private async _readLogsInner(opts: { since?: number; until?: number; limit?: number; level?: string; source?: string; skipUntil?: { ts: number; idx: number } } = {}): Promise<{ entries: PluginLogEntry[]; total: number; _cursorState: { ts: number; idx: number } | null }> {
+    // Intentional adaptation from plan: `since` default is 0 (not now - 86400)
+    // so pagination across a full export reads everything within the window.
+    const since = opts.since ?? 0;
+    const until = opts.until ?? Number.MAX_SAFE_INTEGER;
     const limit = Math.min(opts.limit ?? 200, 50_000);
     const minLevelIdx = opts.level ? LEVEL_ORDER.indexOf(opts.level as (typeof LEVEL_ORDER)[number]) : 0;
+    const skip = opts.skipUntil;
 
     let files: string[];
     try {
       files = (await fs.readdir(this.logDir))
         .filter(f => f.startsWith("diagnostic-") && f.endsWith(".jsonl"))
-        .sort()
-        .reverse();
+        .sort();
     } catch {
-      return { entries: [], total: 0 };
+      return { entries: [], total: 0, _cursorState: null };
     }
 
     const allEntries: PluginLogEntry[] = [];
 
     for (const file of files) {
+      // Optional: skip files entirely out of window. Day boundaries:
+      // startOfDay <= ts < startOfDay + 86400.
       const dateMatch = file.match(/diagnostic-(\d{4}-\d{2}-\d{2})\.jsonl/);
       if (dateMatch) {
-        const endOfDay = new Date(dateMatch[1] + "T23:59:59").getTime() / 1000;
-        if (endOfDay < since) break;
+        const startOfDay = new Date(dateMatch[1] + "T00:00:00").getTime() / 1000;
+        const endOfDay = startOfDay + 86400;
+        if (endOfDay <= since || startOfDay > until) continue;
       }
 
       let content: string;
@@ -189,11 +195,15 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
         continue;
       }
 
+      // I3 (CURSOR_CLAMP): `since`/`until` are applied to every entry BEFORE
+      // the skip gate below. A forged cursor cannot widen the window because
+      // entries outside [since, until] never enter `allEntries`.
       for (const line of content.split("\n")) {
         if (!line.trim()) continue;
         try {
           const entry = JSON.parse(line) as PluginLogEntry;
           if (entry.timestamp < since) continue;
+          if (entry.timestamp > until) continue;
           if (minLevelIdx > 0 && LEVEL_ORDER.indexOf(entry.level) < minLevelIdx) continue;
           if (opts.source && !entry.source.startsWith(opts.source)) continue;
           allEntries.push(entry);
@@ -203,10 +213,50 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
       }
     }
 
+    // I2 (CURSOR_ASC): sort ASC so the page cursor represents a monotonically
+    // non-decreasing (ts, idx). Stable sort preserves insertion order within
+    // identical timestamps, matching the per-file append order on disk.
     allEntries.sort((a, b) => a.timestamp - b.timestamp);
+
+    // Apply skip gate: skip all entries with ts < skip.ts; within ts === skip.ts
+    // run, skip the first skip.idx entries (0-based intra-ts counter).
+    let sliceStart = 0;
+    if (skip) {
+      while (sliceStart < allEntries.length && allEntries[sliceStart].timestamp < skip.ts) {
+        sliceStart++;
+      }
+      let intraTsCount = 0;
+      while (
+        sliceStart < allEntries.length &&
+        allEntries[sliceStart].timestamp === skip.ts &&
+        intraTsCount < skip.idx
+      ) {
+        sliceStart++;
+        intraTsCount++;
+      }
+    }
+
+    const pageEntries = allEntries.slice(sliceStart, sliceStart + limit);
     const total = allEntries.length;
-    const entries = total > limit ? allEntries.slice(total - limit) : allEntries;
-    return { entries, total };
+
+    // Next cursor: only if a full page was returned AND there is more beyond.
+    // `idx` counts how many entries at the last ts appear in THIS page (including
+    // any that were also counted by a prior page's cursor skip). The caller
+    // re-seeds skipUntil with {ts: lastTs, idx: cumulativeRunCount}.
+    let _cursorState: { ts: number; idx: number } | null = null;
+    if (pageEntries.length === limit && sliceStart + limit < allEntries.length) {
+      const lastTs = pageEntries[pageEntries.length - 1].timestamp;
+      let idx = 0;
+      for (let i = pageEntries.length - 1; i >= 0; i--) {
+        if (pageEntries[i].timestamp === lastTs) idx++;
+        else break;
+      }
+      // If skip was also at this ts, the caller needs the cumulative count.
+      if (skip && skip.ts === lastTs) idx += skip.idx;
+      _cursorState = { ts: lastTs, idx };
+    }
+
+    return { entries: pageEntries, total, _cursorState };
   }
 
   async rotate(): Promise<void> {
