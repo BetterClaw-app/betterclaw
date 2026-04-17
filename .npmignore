@@ -1,5 +1,6 @@
 test/
 docs/
 .github/
+.claude/
 tsconfig.json
 vitest.config.*
