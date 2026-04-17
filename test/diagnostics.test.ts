@@ -478,6 +478,26 @@ describe("PluginDiagnosticLogger", () => {
       expect(Array.isArray(read.entries)).toBe(true);
     });
 
+    it("serializes concurrent rotations (writer-writer exclusion)", async () => {
+      const logger = new PluginDiagnosticLogger(logDir, apiLogger);
+      await fs.mkdir(logDir, { recursive: true });
+      // Instrument _rotateInner so we can observe concurrent entry.
+      // If the mutex fails, maxInFlight rises above 1.
+      let inFlight = 0;
+      let maxInFlight = 0;
+      const origInner = (logger as any)._rotateInner.bind(logger);
+      (logger as any)._rotateInner = async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        // Yield so queued rotations get a chance to race us.
+        await new Promise((r) => setTimeout(r, 10));
+        await origInner();
+        inFlight--;
+      };
+      await Promise.all([logger.rotate(), logger.rotate(), logger.rotate()]);
+      expect(maxInFlight).toBe(1);
+    });
+
     it("mutex is safe under rapid rotate->read->rotate->read interleaving", async () => {
       const logger = new PluginDiagnosticLogger(logDir, apiLogger);
       for (let i = 0; i < 5; i++) {
