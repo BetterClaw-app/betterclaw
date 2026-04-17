@@ -37,15 +37,19 @@ export function decodeCursor(s: string): CursorState {
  * @param params.settings      Per-category include/exclude flags (10 booleans).
  * @param params.since         Optional window lower bound, Unix seconds.
  * @param params.until         Optional window upper bound, Unix seconds.
- * @param params.limit         Optional cap on returned entries; default 10_000.
+ * @param params.limit         Optional per-page cap; default 500.
+ * @param params.after         Optional opaque cursor from a previous response.
  * @param dlog                 The PluginDiagnosticLogger instance (from initDiagnosticLogger).
  * @param key                  HMAC key for redaction strategies. Required when any
  *                             sensitive category is enabled.
  *
- * Returns entries newest-first. `truncated` is set if either:
- *  - the post-filter count exceeded `limit` (older matches dropped to preserve recency), or
- *  - the raw read saturated the 50k ceiling (older pre-filter entries dropped by readLogs).
- * In both cases the caller knows "there's more than you got."
+ * Returns entries in ASC order (oldest first). `cursor` is set when there
+ * are more entries beyond this page; pass it back as `after` to continue.
+ * `truncated` flags a raw-read saturation at the 50k ceiling (anomaly only).
+ *
+ * The `entries` field is a plain JSON string in Task 4; Task 5 will wrap
+ * it in base64(gzip(...)) for iOS tunnel friendliness. The wire type stays
+ * `string` across both tasks.
  */
 export type LogsRpcParams = {
   settings?: ExportSettings;
@@ -53,6 +57,7 @@ export type LogsRpcParams = {
   until?: number;
   limit?: number;
   anonymizationKey?: string;
+  after?: string;
 };
 
 export type LogsRpcError = { code: string; message: string };
@@ -90,41 +95,56 @@ export async function handleLogsRpc(
     since?: number;
     until?: number;
     limit?: number;
+    after?: string;
   },
   dlog: PluginDiagnosticLogger,
   key: Buffer,
 ): Promise<{
-  schemaVersion: number;
+  schemaVersion: 1;
   manifestVersion: number;
-  entries: RedactedEntry[];
+  entries: string;
+  cursor: string | null;
   truncated: boolean;
 }> {
-  const limit = params.limit ?? 10_000;
-  const RAW_CEILING = 50_000;
+  const limit = params.limit ?? 500;
 
-  const { entries: raw } = await dlog.readLogs({
-    since: params.since,
-    limit: RAW_CEILING,
-  });
-  const rawSaturated = raw.length >= RAW_CEILING;
-
-  const redacted: RedactedEntry[] = [];
-  let postFilterCount = 0;
-
-  for (let i = raw.length - 1; i >= 0; i--) {
-    const e = raw[i];
-    if (params.until !== undefined && e.timestamp > params.until) continue;
-
-    const r = redactEntry(e, params.settings, key);
-    if (r === null) continue;
-    postFilterCount++;
-    if (redacted.length < limit) redacted.push(r);
+  // Decode cursor if present. Throws Error("INVALID_CURSOR") which propagates
+  // out through the RPC catch at index.ts and turns into the wire error.
+  // (Task 7 tightens the thrown message; not a Task 4 concern.)
+  let skipUntil: { ts: number; idx: number } | undefined;
+  if (params.after !== undefined) {
+    skipUntil = decodeCursor(params.after);
   }
+
+  const { entries: raw, _cursorState } = await dlog.readLogs({
+    since: params.since,
+    until: params.until,
+    limit,
+    skipUntil,
+  });
+
+  // readLogs returns entries in ASC order (oldest first); apply settings
+  // filter + redaction in that same order. The ordering is now the server's
+  // contract per I2.
+  const redacted: RedactedEntry[] = [];
+  for (const e of raw) {
+    const r = redactEntry(e, params.settings, key);
+    if (r !== null) redacted.push(r);
+  }
+
+  // Plugin-internal RAW_CEILING saturation — readLogs caps at 50k via its
+  // own Math.min. A full page reaching 50k is an anomaly worth flagging.
+  // With the 500 default, this never trips in normal operation; cursor is
+  // the "more exists" signal instead.
+  const truncated = raw.length >= 50_000;
+
+  const cursor = _cursorState ? encodeCursor(_cursorState) : null;
 
   return {
     schemaVersion: 1,
     manifestVersion: MANIFEST.manifestVersion,
-    entries: redacted,
-    truncated: postFilterCount > limit || rawSaturated,
+    entries: JSON.stringify(redacted),
+    cursor,
+    truncated,
   };
 }
