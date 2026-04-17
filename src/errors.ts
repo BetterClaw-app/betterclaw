@@ -34,6 +34,9 @@ function walk(err: unknown, seen: WeakSet<object>, depth: number): Record<string
     out["error.type"] = err.constructor.name;
     out["error.message"] = err.message;
     if (typeof err.stack === "string") out["error.stack"] = scrubStack(err.stack);
+    if (typeof (err as { code?: unknown }).code === "string") {
+      out["error.code"] = (err as { code: string }).code;
+    }
     if (err.cause !== undefined && depth < MAX_CAUSE_DEPTH) {
       out["error.cause"] = walk(err.cause, seen, depth + 1);
     }
