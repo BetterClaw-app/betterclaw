@@ -393,7 +393,7 @@ export default {
           return;
         }
         const result = await handleLogsRpc(
-          { settings: p.settings, since: p.since, until: p.until, limit: p.limit },
+          { settings: p.settings, since: p.since, until: p.until, limit: p.limit, after: p.after },
           diagnosticLogger,
           keyResult.key,
         );

@@ -619,7 +619,9 @@ describe("plugin registration", () => {
       expect(res.ok).toBe(true);
       expect(res.result.schemaVersion).toBe(1);
       expect(res.result.manifestVersion).toBeGreaterThan(0);
-      expect(Array.isArray(res.result.entries)).toBe(true);
+      // Task 4: entries is a plain JSON string; Task 5 wraps it in base64(gzip).
+      expect(typeof res.result.entries).toBe("string");
+      expect(Array.isArray(JSON.parse(res.result.entries))).toBe(true);
       expect(lastLogger.readLogs).toHaveBeenCalled();
     });
   });

@@ -6,6 +6,15 @@ import * as fs from "node:fs/promises";
 import { initDiagnosticLogger, type PluginDiagnosticLogger } from "../src/diagnostic-logger.js";
 import { noopLogger } from "../src/types.js";
 import { handleLogsRpc } from "../src/logs-rpc.js";
+import type { RedactedEntry } from "../src/redactor.js";
+
+function entriesOf(r: { entries: string | RedactedEntry[] }): RedactedEntry[] {
+  // Transitional: Task 4 returns `entries` as a plain JSON string;
+  // Task 5 upgrades it to base64(gzip(JSON)). Keep this helper as the single
+  // point of change so the Task 5 swap is one edit.
+  if (Array.isArray(r.entries)) return r.entries;
+  return JSON.parse(r.entries) as RedactedEntry[];
+}
 
 function allOn() {
   return {
@@ -31,8 +40,9 @@ describe("betterclaw.logs RPC", () => {
     const res = await handleLogsRpc({ settings: allOn() }, dlog, key);
     expect(res.schemaVersion).toBe(1);
     expect(res.manifestVersion).toBeGreaterThan(0);
-    expect(res.entries.length).toBe(1);
-    const data = JSON.parse(res.entries[0].data!);
+    const entries = entriesOf(res);
+    expect(entries.length).toBe(1);
+    const data = JSON.parse(entries[0].data!);
     expect(data.tier).toBe("free");
     expect(data.host).toMatch(/^hmac:/);
   });
@@ -41,24 +51,7 @@ describe("betterclaw.logs RPC", () => {
     dlog.info("plugin.service", "loaded", "m");
     await dlog.flush();
     const res = await handleLogsRpc({ settings: { ...allOn(), lifecycle: false } }, dlog, key);
-    expect(res.entries.length).toBe(0);
-  });
-
-  it("returns newest entries first when limit hit; truncated=true", async () => {
-    for (let i = 0; i < 5; i++) {
-      dlog.info("plugin.service", "loaded", `m${i}`);
-      await new Promise(r => setTimeout(r, 5));
-    }
-    await dlog.flush();
-    const res = await handleLogsRpc({ settings: allOn(), limit: 3 }, dlog, key);
-    expect(res.entries.length).toBe(3);
-    expect(res.truncated).toBe(true);
-    const msgs = res.entries.map(e => e.message);
-    expect(msgs).toContain("m4");
-    expect(msgs).toContain("m3");
-    expect(msgs).toContain("m2");
-    expect(msgs).not.toContain("m0");
-    expect(msgs).not.toContain("m1");
+    expect(entriesOf(res).length).toBe(0);
   });
 
   it("honors `until` as a window upper bound", async () => {
@@ -66,14 +59,14 @@ describe("betterclaw.logs RPC", () => {
     await dlog.flush();
     const upper = Date.now() / 1000 - 3600;
     const res = await handleLogsRpc({ settings: allOn(), until: upper }, dlog, key);
-    expect(res.entries.length).toBe(0);
+    expect(entriesOf(res).length).toBe(0);
   });
 
   it("serializes data as JSON string (iOS wire contract)", async () => {
     dlog.info("plugin.service", "loaded", "m", { phase: "init", success: true });
     await dlog.flush();
     const res = await handleLogsRpc({ settings: allOn() }, dlog, key);
-    expect(typeof res.entries[0].data).toBe("string");
+    expect(typeof entriesOf(res)[0].data).toBe("string");
   });
 
   it("uses the supplied key deterministically across calls", async () => {
@@ -82,8 +75,8 @@ describe("betterclaw.logs RPC", () => {
     const suppliedKey = randomBytes(32);
     const r1 = await handleLogsRpc({ settings: allOn() }, dlog, suppliedKey);
     const r2 = await handleLogsRpc({ settings: allOn() }, dlog, suppliedKey);
-    const h1 = JSON.parse(r1.entries[0].data!).host;
-    const h2 = JSON.parse(r2.entries[0].data!).host;
+    const h1 = JSON.parse(entriesOf(r1)[0].data!).host;
+    const h2 = JSON.parse(entriesOf(r2)[0].data!).host;
     expect(h1).toBe(h2);
     expect(h1).toMatch(/^hmac:/);
   });
@@ -95,9 +88,80 @@ describe("betterclaw.logs RPC", () => {
     const k2 = randomBytes(32);
     const r1 = await handleLogsRpc({ settings: allOn() }, dlog, k1);
     const r2 = await handleLogsRpc({ settings: allOn() }, dlog, k2);
-    const h1 = JSON.parse(r1.entries[0].data!).host;
-    const h2 = JSON.parse(r2.entries[0].data!).host;
+    const h1 = JSON.parse(entriesOf(r1)[0].data!).host;
+    const h2 = JSON.parse(entriesOf(r2)[0].data!).host;
     expect(h1).not.toBe(h2);
+  });
+
+  it("paginates via cursor with no duplicates or gaps", async () => {
+    for (let i = 0; i < 7; i++) {
+      dlog.info("plugin.service", "loaded", `ev${i}`);
+      await new Promise(r => setTimeout(r, 2));
+    }
+    await dlog.flush();
+
+    // Page 1: limit 3, no cursor → oldest 3 in window.
+    const p1 = await handleLogsRpc({ settings: allOn(), limit: 3 }, dlog, key);
+    expect(entriesOf(p1).length).toBe(3);
+    expect(p1.cursor).toBeTruthy();
+
+    // Page 2.
+    const p2 = await handleLogsRpc(
+      { settings: allOn(), limit: 3, after: p1.cursor! },
+      dlog,
+      key,
+    );
+    expect(entriesOf(p2).length).toBe(3);
+    expect(p2.cursor).toBeTruthy();
+
+    // Page 3: last one, cursor null.
+    const p3 = await handleLogsRpc(
+      { settings: allOn(), limit: 3, after: p2.cursor! },
+      dlog,
+      key,
+    );
+    expect(entriesOf(p3).length).toBe(1);
+    expect(p3.cursor).toBeNull();
+
+    const messages = [...entriesOf(p1), ...entriesOf(p2), ...entriesOf(p3)].map(e => e.message);
+    expect(messages).toEqual(["ev0", "ev1", "ev2", "ev3", "ev4", "ev5", "ev6"]);
+  });
+
+  it("pages cleanly through entries at identical timestamps (intra-ts dedup)", async () => {
+    // Forge a same-ts run via direct fs write so we control the timestamps.
+    await fs.mkdir(logDir, { recursive: true });
+    const today = new Date().toISOString().slice(0, 10);
+    const sharedTs = Math.floor(Date.now() / 1000);
+    const lines = [
+      { timestamp: sharedTs, level: "info", source: "plugin.service", event: "loaded", message: "same0" },
+      { timestamp: sharedTs, level: "info", source: "plugin.service", event: "loaded", message: "same1" },
+      { timestamp: sharedTs, level: "info", source: "plugin.service", event: "loaded", message: "same2" },
+    ];
+    await fs.writeFile(
+      path.join(logDir, `diagnostic-${today}.jsonl`),
+      lines.map(l => JSON.stringify(l)).join("\n") + "\n",
+      "utf-8",
+    );
+
+    const p1 = await handleLogsRpc({ settings: allOn(), limit: 1 }, dlog, key);
+    expect(entriesOf(p1)[0].message).toBe("same0");
+    expect(p1.cursor).toBeTruthy();
+
+    const p2 = await handleLogsRpc(
+      { settings: allOn(), limit: 1, after: p1.cursor! },
+      dlog,
+      key,
+    );
+    expect(entriesOf(p2)[0].message).toBe("same1");
+    expect(p2.cursor).toBeTruthy();
+
+    const p3 = await handleLogsRpc(
+      { settings: allOn(), limit: 1, after: p2.cursor! },
+      dlog,
+      key,
+    );
+    expect(entriesOf(p3)[0].message).toBe("same2");
+    expect(p3.cursor).toBeNull();
   });
 });
 
