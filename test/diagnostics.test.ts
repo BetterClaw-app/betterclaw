@@ -273,6 +273,43 @@ describe("PluginDiagnosticLogger", () => {
     });
   });
 
+  describe("rotation mutex (I7)", () => {
+    it("readLogs does not observe ENOENT when rotate() fires concurrently", async () => {
+      const logger = new PluginDiagnosticLogger(logDir, apiLogger);
+      logger.info("test", "ev1", "m");
+      await logger.flush();
+
+      // Race: read + rotate simultaneously. With the mutex correctly built,
+      // neither throws; readLogs returns a valid {entries, total} shape.
+      const readPromise = logger.readLogs({ limit: 100 });
+      const rotatePromise = logger.rotate();
+      const [read] = await Promise.all([readPromise, rotatePromise]);
+
+      expect(Array.isArray(read.entries)).toBe(true);
+    });
+
+    it("mutex is safe under rapid rotate->read->rotate->read interleaving", async () => {
+      const logger = new PluginDiagnosticLogger(logDir, apiLogger);
+      for (let i = 0; i < 5; i++) {
+        logger.info("test", `ev${i}`, "m");
+      }
+      await logger.flush();
+
+      // Fire 4 rotates and 4 reads interleaved, no await between dispatches.
+      const ops: Promise<unknown>[] = [];
+      for (let i = 0; i < 4; i++) {
+        ops.push(logger.rotate());
+        ops.push(logger.readLogs({ limit: 100 }));
+      }
+      const results = await Promise.all(ops);
+      // ops[2*k] = rotate (void), ops[2*k+1] = read ({entries, total}).
+      for (let i = 0; i < results.length; i += 2) {
+        const read = results[i + 1] as { entries: unknown[] };
+        expect(Array.isArray(read.entries)).toBe(true);
+      }
+    });
+  });
+
   describe("circuit breaker", () => {
     it("trips on write failure and logs warning", async () => {
       const badDir = path.join(await makeTmpDir(), "blocker");
