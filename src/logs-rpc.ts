@@ -1,6 +1,36 @@
 import { redactEntry, MANIFEST, type ExportSettings, type RedactedEntry } from "./redactor.js";
 import type { PluginDiagnosticLogger } from "./diagnostic-logger.js";
 
+export type CursorState = { ts: number; idx: number };
+
+export function encodeCursor(state: CursorState): string {
+  return Buffer.from(JSON.stringify(state), "utf8").toString("base64");
+}
+
+export function decodeCursor(s: string): CursorState {
+  let decoded: string;
+  try {
+    decoded = Buffer.from(s, "base64").toString("utf8");
+  } catch {
+    throw new Error("INVALID_CURSOR");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoded);
+  } catch {
+    throw new Error("INVALID_CURSOR");
+  }
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    typeof (parsed as any).ts !== "number" ||
+    typeof (parsed as any).idx !== "number"
+  ) {
+    throw new Error("INVALID_CURSOR");
+  }
+  return parsed as CursorState;
+}
+
 /**
  * Handle the `betterclaw.logs` RPC.
  *
