@@ -156,12 +156,16 @@ describe("PluginDiagnosticLogger", () => {
       expect(entries).toHaveLength(0);
     });
 
-    it("respects limit and returns most recent", async () => {
+    it("respects limit and returns oldest N in window (ASC paging, I2)", async () => {
       const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
       await seedEntries(dlog);
       const { entries, total } = await dlog.readLogs({ limit: 2 });
       expect(entries).toHaveLength(2);
       expect(total).toBe(5);
+      // Seeded in order: debug(event.received), info(push.decided), warning, error, info(push.sent).
+      // ASC + limit=2 returns the OLDEST two, not the newest two.
+      expect(entries[0].event).toBe("event.received");
+      expect(entries[1].event).toBe("push.decided");
     });
 
     it("enforces 50k hard cap on limit", async () => {
@@ -237,6 +241,186 @@ describe("PluginDiagnosticLogger", () => {
       await seedEntries(dlog);
       const { entries } = await dlog.readLogs({ source: "plugin.pipeline", level: "info" });
       expect(entries).toHaveLength(2);
+    });
+  });
+
+  describe("readLogs cursor pagination (I2, I3)", () => {
+    // These tests exercise the ASC + skipUntil contract that Task 4 relies on.
+    // Each seeded entry uses dlog.info so timestamps are ~monotonic by call order.
+
+    it("_cursorState is null when the page is not full", async () => {
+      const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
+      dlog.info("s", "e", "a");
+      dlog.info("s", "e", "b");
+      await dlog.flush();
+      const result = await dlog.readLogs({ limit: 10 });
+      expect(result.entries).toHaveLength(2);
+      expect(result._cursorState).toBeNull();
+    });
+
+    it("_cursorState is populated when a full page has more after it", async () => {
+      const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
+      dlog.info("s", "e", "a");
+      dlog.info("s", "e", "b");
+      dlog.info("s", "e", "c");
+      dlog.info("s", "e", "d");
+      await dlog.flush();
+      const result = await dlog.readLogs({ limit: 2 });
+      expect(result.entries).toHaveLength(2);
+      expect(result._cursorState).not.toBeNull();
+      expect(result._cursorState!.ts).toBe(result.entries[1].timestamp);
+      expect(typeof result._cursorState!.idx).toBe("number");
+      expect(result._cursorState!.idx).toBeGreaterThanOrEqual(1);
+    });
+
+    it("_cursorState is null when the page is exactly full with nothing after", async () => {
+      const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
+      dlog.info("s", "e", "a");
+      dlog.info("s", "e", "b");
+      await dlog.flush();
+      const result = await dlog.readLogs({ limit: 2 });
+      expect(result.entries).toHaveLength(2);
+      expect(result._cursorState).toBeNull();
+    });
+
+    it("skipUntil {ts: lastPageTs, idx: run-count} yields the next oldest-N", async () => {
+      const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
+      dlog.info("s", "e", "m0");
+      dlog.info("s", "e", "m1");
+      dlog.info("s", "e", "m2");
+      dlog.info("s", "e", "m3");
+      dlog.info("s", "e", "m4");
+      await dlog.flush();
+
+      const page1 = await dlog.readLogs({ limit: 2 });
+      expect(page1.entries.map(e => e.message)).toEqual(["m0", "m1"]);
+      expect(page1._cursorState).not.toBeNull();
+
+      const page2 = await dlog.readLogs({ limit: 2, skipUntil: page1._cursorState! });
+      expect(page2.entries.map(e => e.message)).toEqual(["m2", "m3"]);
+
+      const page3 = await dlog.readLogs({ limit: 2, skipUntil: page2._cursorState! });
+      expect(page3.entries.map(e => e.message)).toEqual(["m4"]);
+      expect(page3._cursorState).toBeNull();
+    });
+
+    it("skipUntil with idx=0 skips nothing at that ts (consumes zero of the run)", async () => {
+      // Forge a file with three entries sharing the same timestamp, and one strictly later.
+      await fs.mkdir(logDir, { recursive: true });
+      const today = new Date().toISOString().slice(0, 10);
+      const sharedTs = 1000;
+      const lines = [
+        { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "a" },
+        { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "b" },
+        { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "c" },
+        { timestamp: sharedTs + 1, level: "info", source: "s", event: "e", message: "d" },
+      ];
+      await fs.writeFile(
+        path.join(logDir, `diagnostic-${today}.jsonl`),
+        lines.map(l => JSON.stringify(l)).join("\n") + "\n",
+        "utf-8",
+      );
+
+      const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
+      // idx=0 means we have not consumed any entry at sharedTs yet; all three should appear.
+      const result = await dlog.readLogs({ limit: 10, skipUntil: { ts: sharedTs, idx: 0 } });
+      expect(result.entries.map(e => e.message)).toEqual(["a", "b", "c", "d"]);
+    });
+
+    it("skipUntil with idx=n skips exactly n entries within the same-ts run", async () => {
+      await fs.mkdir(logDir, { recursive: true });
+      const today = new Date().toISOString().slice(0, 10);
+      const sharedTs = 2000;
+      const lines = [
+        { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "a" },
+        { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "b" },
+        { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "c" },
+        { timestamp: sharedTs + 1, level: "info", source: "s", event: "e", message: "d" },
+      ];
+      await fs.writeFile(
+        path.join(logDir, `diagnostic-${today}.jsonl`),
+        lines.map(l => JSON.stringify(l)).join("\n") + "\n",
+        "utf-8",
+      );
+
+      const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
+      // idx=2 means we've already consumed 2 entries at sharedTs; only "c" and "d" remain.
+      const result = await dlog.readLogs({ limit: 10, skipUntil: { ts: sharedTs, idx: 2 } });
+      expect(result.entries.map(e => e.message)).toEqual(["c", "d"]);
+    });
+
+    it("multi-hop paging through a same-ts run longer than limit (cumulative idx)", async () => {
+      // Regression guard for the cursor-accumulation adjustment: when a same-ts
+      // run is longer than `limit`, each subsequent page's outgoing cursor
+      // must carry cumulative (not per-page) idx so paging terminates.
+      await fs.mkdir(logDir, { recursive: true });
+      const today = new Date().toISOString().slice(0, 10);
+      const sharedTs = 3000;
+      const lines = [
+        { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "a" },
+        { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "b" },
+        { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "c" },
+        { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "d" },
+        { timestamp: sharedTs, level: "info", source: "s", event: "e", message: "e" },
+      ];
+      await fs.writeFile(
+        path.join(logDir, `diagnostic-${today}.jsonl`),
+        lines.map(l => JSON.stringify(l)).join("\n") + "\n",
+        "utf-8",
+      );
+
+      const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
+
+      // Page 1: limit 2, no cursor → [a,b], outgoing cursor {ts, idx:2}.
+      const p1 = await dlog.readLogs({ limit: 2 });
+      expect(p1.entries.map(e => e.message)).toEqual(["a", "b"]);
+      expect(p1._cursorState).toEqual({ ts: sharedTs, idx: 2 });
+
+      // Page 2: skipUntil {ts, 2} → [c,d], outgoing cursor {ts, idx:4}
+      // (cumulative — NOT per-page idx:2).
+      const p2 = await dlog.readLogs({ limit: 2, skipUntil: p1._cursorState! });
+      expect(p2.entries.map(e => e.message)).toEqual(["c", "d"]);
+      expect(p2._cursorState).toEqual({ ts: sharedTs, idx: 4 });
+
+      // Page 3: skipUntil {ts, 4} → [e], terminal (cursor null).
+      const p3 = await dlog.readLogs({ limit: 2, skipUntil: p2._cursorState! });
+      expect(p3.entries.map(e => e.message)).toEqual(["e"]);
+      expect(p3._cursorState).toBeNull();
+    });
+
+    it("I3: since/until clamp applies before skipUntil; forged skipUntil cannot widen the window", async () => {
+      await fs.mkdir(logDir, { recursive: true });
+      // Use timestamps within today's date so the day-boundary file-skip keeps the file.
+      const today = new Date().toISOString().slice(0, 10);
+      const startOfDay = new Date(today + "T00:00:00").getTime() / 1000;
+      const tsBelow = startOfDay + 100;
+      const tsIn1 = startOfDay + 500;
+      const tsIn2 = startOfDay + 600;
+      const tsAbove = startOfDay + 900;
+      const lines = [
+        { timestamp: tsBelow, level: "info", source: "s", event: "e", message: "outside-below" },
+        { timestamp: tsIn1, level: "info", source: "s", event: "e", message: "inside-1" },
+        { timestamp: tsIn2, level: "info", source: "s", event: "e", message: "inside-2" },
+        { timestamp: tsAbove, level: "info", source: "s", event: "e", message: "outside-above" },
+      ];
+      await fs.writeFile(
+        path.join(logDir, `diagnostic-${today}.jsonl`),
+        lines.map(l => JSON.stringify(l)).join("\n") + "\n",
+        "utf-8",
+      );
+
+      const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
+      // Forge a skipUntil well before the window. Window is [tsIn1, tsIn2+50].
+      // An attacker cannot widen the window by back-dating the cursor —
+      // the since/until filter still drops "outside-below" and "outside-above".
+      const result = await dlog.readLogs({
+        since: tsIn1,
+        until: tsIn2 + 50,
+        limit: 10,
+        skipUntil: { ts: startOfDay, idx: 0 },
+      });
+      expect(result.entries.map(e => e.message)).toEqual(["inside-1", "inside-2"]);
+      expect(result.total).toBe(2);
     });
   });
 
