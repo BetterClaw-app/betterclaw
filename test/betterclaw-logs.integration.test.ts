@@ -162,6 +162,58 @@ describe("betterclaw.logs RPC", () => {
     expect(p3.cursor).toBeNull();
   });
 
+  it("cursor clamp: forged cursor outside [since, until] cannot leak entries", async () => {
+    // Seed two distinctly-timed entries.
+    dlog.info("plugin.service", "loaded", "old");
+    await new Promise(r => setTimeout(r, 10));
+    const midTs = Date.now() / 1000;
+    await new Promise(r => setTimeout(r, 10));
+    dlog.info("plugin.service", "loaded", "new");
+    await dlog.flush();
+
+    // Forge a cursor pointing BEFORE the window but INSIDE today's retained
+    // file (so it isn't caught by CURSOR_EXPIRED proactive check — that's a
+    // separate invariant, I7 pair).
+    const forged = encodeCursor({ ts: midTs - 1, idx: 0 });
+
+    // Window excludes "old"; cursor must not widen it back.
+    const r = await handleLogsRpc(
+      { settings: allOn(), since: midTs, limit: 10, after: forged },
+      dlog,
+      key,
+    );
+    const arr = entriesOf(r);
+    expect(arr.every(e => e.message !== "old")).toBe(true);
+  });
+
+  it("returns CURSOR_EXPIRED when cursor's ts predates oldest surviving file", async () => {
+    // Seed ONE recent entry so there's exactly one daily file on disk.
+    dlog.info("plugin.service", "loaded", "recent");
+    await dlog.flush();
+
+    // Ancient cursor (Unix epoch 1970): far predates the daily file just written.
+    const ancient = encodeCursor({ ts: 0, idx: 0 });
+
+    await expect(
+      handleLogsRpc(
+        { settings: allOn(), limit: 10, after: ancient },
+        dlog,
+        key,
+      ),
+    ).rejects.toThrow(/CURSOR_EXPIRED/);
+  });
+
+  it("returns INVALID_CURSOR on malformed cursor string", async () => {
+    // decodeCursor throws; handleLogsRpc propagates — no new code needed.
+    await expect(
+      handleLogsRpc(
+        { settings: allOn(), limit: 10, after: "!!!not-base64" },
+        dlog,
+        key,
+      ),
+    ).rejects.toThrow(/INVALID_CURSOR/);
+  });
+
   it("entries field is base64-encoded gzipped JSON array", async () => {
     dlog.info("plugin.service", "loaded", "m");
     await dlog.flush();
