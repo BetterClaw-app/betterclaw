@@ -245,9 +245,21 @@ describe("PluginDiagnosticLogger", () => {
   });
 
   describe("readLogs cursor pagination (I2, I3)", () => {
-    it("CURSOR_EXPIRED when skipUntil is supplied but no retained files exist", async () => {
-      // Empty logDir (never written to). A resumed cursor cannot possibly
-      // land in a retained file because none exist — surface as expired.
+    it("CURSOR_EXPIRED when skipUntil is supplied and logDir is unreadable (readdir fails)", async () => {
+      // logDir never created. readdir throws ENOENT → the catch-branch
+      // variant of the proactive CURSOR_EXPIRED check must fire.
+      const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
+      await expect(
+        dlog.readLogs({ skipUntil: { ts: 100, idx: 0 } }),
+      ).rejects.toThrow(/cursor is no longer valid/);
+    });
+
+    it("CURSOR_EXPIRED when skipUntil is supplied but logDir has zero diagnostic files", async () => {
+      // logDir exists (readdir succeeds) but contains NO diagnostic-*.jsonl
+      // files. Exercises the `files.length === 0` branch, distinct from the
+      // readdir-ENOENT branch above.
+      await fs.mkdir(logDir, { recursive: true });
+      await fs.writeFile(path.join(logDir, "unrelated.txt"), "noise\n", "utf-8");
       const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
       await expect(
         dlog.readLogs({ skipUntil: { ts: 100, idx: 0 } }),
