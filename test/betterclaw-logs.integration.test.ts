@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { randomBytes } from "node:crypto";
+import zlib from "node:zlib";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
@@ -8,12 +9,9 @@ import { noopLogger } from "../src/types.js";
 import { handleLogsRpc } from "../src/logs-rpc.js";
 import type { RedactedEntry } from "../src/redactor.js";
 
-function entriesOf(r: { entries: string | RedactedEntry[] }): RedactedEntry[] {
-  // Transitional: Task 4 returns `entries` as a plain JSON string;
-  // Task 5 upgrades it to base64(gzip(JSON)). Keep this helper as the single
-  // point of change so the Task 5 swap is one edit.
-  if (Array.isArray(r.entries)) return r.entries;
-  return JSON.parse(r.entries) as RedactedEntry[];
+function entriesOf(r: { entries: string }): RedactedEntry[] {
+  const decompressed = zlib.gunzipSync(Buffer.from(r.entries, "base64")).toString("utf8");
+  return JSON.parse(decompressed) as RedactedEntry[];
 }
 
 function allOn() {
@@ -162,6 +160,24 @@ describe("betterclaw.logs RPC", () => {
     );
     expect(entriesOf(p3)[0].message).toBe("same2");
     expect(p3.cursor).toBeNull();
+  });
+
+  it("entries field is base64-encoded gzipped JSON array", async () => {
+    dlog.info("plugin.service", "loaded", "m");
+    await dlog.flush();
+
+    const r = await handleLogsRpc({ settings: allOn(), limit: 10 }, dlog, key);
+
+    // Should no longer parse as plain JSON (it's base64 now).
+    expect(() => JSON.parse(r.entries)).toThrow();
+
+    // Should decompress + parse cleanly.
+    const decompressed = zlib
+      .gunzipSync(Buffer.from(r.entries, "base64"))
+      .toString("utf8");
+    const arr = JSON.parse(decompressed) as RedactedEntry[];
+    expect(arr.length).toBe(1);
+    expect(arr[0].event).toBe("loaded");
   });
 });
 
