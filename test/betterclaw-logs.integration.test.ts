@@ -249,6 +249,43 @@ describe("betterclaw.logs RPC", () => {
     }
   });
 
+  it("end-to-end: 1500 entries paginated at limit=500 with compression", async () => {
+    for (let i = 0; i < 1500; i++) {
+      dlog.info("plugin.service", "loaded", `bulk-${i}`);
+    }
+    await dlog.flush();
+
+    const pages: RedactedEntry[][] = [];
+    let cursor: string | null | undefined = undefined;
+    let pageCount = 0;
+    while (true) {
+      pageCount++;
+      const r = await handleLogsRpc(
+        {
+          settings: allOn(),
+          limit: 500,
+          ...(cursor !== undefined ? { after: cursor } : {}),
+        },
+        dlog,
+        key,
+      );
+      pages.push(entriesOf(r));
+      if (r.cursor === null) break;
+      cursor = r.cursor;
+      if (pageCount > 10) throw new Error("runaway loop");
+    }
+
+    const all = pages.flat();
+    expect(all.length).toBe(1500);
+    expect(pageCount).toBe(3);
+
+    // Verify strict ASC ordering via the message-encoded index.
+    // `.message` survives redaction (not category-gated) and carries our ordinal.
+    expect(all.map(e => e.message)).toEqual(
+      Array.from({ length: 1500 }, (_, i) => `bulk-${i}`),
+    );
+  });
+
   it("entries field is base64-encoded gzipped JSON array", async () => {
     dlog.info("plugin.service", "loaded", "m");
     await dlog.flush();
