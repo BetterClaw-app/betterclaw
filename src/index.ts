@@ -401,8 +401,19 @@ export default {
       } catch (err) {
         // SECURITY: never include `params` in this log — anonymizationKey is
         // secret, and the raw params object carries it. errorFields() on
-        // the error object alone is safe (it captures message/stack only).
+        // the error object alone is safe (it captures message/stack/.code only).
         diagnosticLogger.error("plugin.rpc", "logs.error", "logs RPC failed", errorFields(err));
+        // Forward cursor-error discriminators so the client can distinguish
+        // retriable (CURSOR_EXPIRED → restart pagination) from permanent
+        // (INVALID_CURSOR → caller bug). Any other failure falls through to
+        // the generic LOGS_ERROR envelope.
+        const code = err instanceof Error && typeof (err as { code?: unknown }).code === "string"
+          ? (err as { code: string }).code
+          : null;
+        if (code === "INVALID_CURSOR" || code === "CURSOR_EXPIRED") {
+          respond(false, undefined, { code, message: (err as Error).message });
+          return;
+        }
         respond(false, undefined, { code: "LOGS_ERROR", message: "logs RPC failed" });
       }
     });

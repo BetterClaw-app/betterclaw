@@ -35,6 +35,21 @@ describe("errorFields", () => {
     expect(Object.keys(errorFields("plain")).includes("error.stack")).toBe(false);
   });
 
+  it("captures a string `.code` property when present on the Error", () => {
+    const err: Error & { code?: string } = Object.assign(
+      new Error("cursor is no longer valid"),
+      { code: "CURSOR_EXPIRED" },
+    );
+    const f = errorFields(err);
+    expect(f["error.code"]).toBe("CURSOR_EXPIRED");
+  });
+
+  it("omits error.code when .code is not a string", () => {
+    const err: Error & { code?: unknown } = Object.assign(new Error("x"), { code: 42 });
+    const f = errorFields(err);
+    expect(Object.keys(f).includes("error.code")).toBe(false);
+  });
+
   it("handles circular cause chains without stack overflow", () => {
     const a = new Error("a");
     const b = new Error("b");

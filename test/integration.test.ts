@@ -628,6 +628,48 @@ describe("plugin registration", () => {
       expect(Array.isArray(JSON.parse(decompressed))).toBe(true);
       expect(lastLogger.readLogs).toHaveBeenCalled();
     });
+
+    it("forwards INVALID_CURSOR to the wire (not generic LOGS_ERROR)", async () => {
+      const api = await registerPlugin();
+      const allOn = {
+        connection: true, heartbeat: true, commands: true, dns: true,
+        lifecycle: true, battery: true,
+        subscriptions: true, health: true, location: true, geofence: true,
+      };
+      const res = await invokeMethod(api, "betterclaw.logs", {
+        settings: allOn, limit: 10, after: "!!!not-base64",
+      });
+      expect(res.ok).toBe(false);
+      expect(res.error?.code).toBe("INVALID_CURSOR");
+      expect(res.error?.message).toBe("cursor is malformed");
+    });
+
+    it("forwards CURSOR_EXPIRED to the wire (not generic LOGS_ERROR)", async () => {
+      const { initDiagnosticLogger } = await import("../src/diagnostic-logger.js");
+      const mockInit = initDiagnosticLogger as ReturnType<typeof vi.fn>;
+      const api = await registerPlugin();
+      const lastLogger = mockInit.mock.results[mockInit.mock.results.length - 1].value;
+      const expiredError: Error & { code?: string } = Object.assign(
+        new Error("cursor is no longer valid"),
+        { code: "CURSOR_EXPIRED" },
+      );
+      lastLogger.readLogs.mockRejectedValueOnce(expiredError);
+
+      const allOn = {
+        connection: true, heartbeat: true, commands: true, dns: true,
+        lifecycle: true, battery: true,
+        subscriptions: true, health: true, location: true, geofence: true,
+      };
+      // Use a well-formed cursor so decodeCursor passes; the mocked readLogs
+      // is what rejects with CURSOR_EXPIRED.
+      const cursor = Buffer.from(JSON.stringify({ ts: 1, idx: 0 }), "utf8").toString("base64");
+      const res = await invokeMethod(api, "betterclaw.logs", {
+        settings: allOn, limit: 10, after: cursor,
+      });
+      expect(res.ok).toBe(false);
+      expect(res.error?.code).toBe("CURSOR_EXPIRED");
+      expect(res.error?.message).toBe("cursor is no longer valid");
+    });
   });
 
   // -------------------------------------------------------------------------
