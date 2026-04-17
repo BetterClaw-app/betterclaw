@@ -245,6 +245,15 @@ describe("PluginDiagnosticLogger", () => {
   });
 
   describe("readLogs cursor pagination (I2, I3)", () => {
+    it("CURSOR_EXPIRED when skipUntil is supplied but no retained files exist", async () => {
+      // Empty logDir (never written to). A resumed cursor cannot possibly
+      // land in a retained file because none exist — surface as expired.
+      const dlog = new PluginDiagnosticLogger(logDir, apiLogger);
+      await expect(
+        dlog.readLogs({ skipUntil: { ts: 100, idx: 0 } }),
+      ).rejects.toThrow(/cursor is no longer valid/);
+    });
+
     // These tests exercise the ASC + skipUntil contract that Task 4 relies on.
     // Each seeded entry uses dlog.info so timestamps are ~monotonic by call order.
 

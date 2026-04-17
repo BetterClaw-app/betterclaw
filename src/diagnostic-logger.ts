@@ -218,6 +218,10 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
         .filter(f => f.startsWith("diagnostic-") && f.endsWith(".jsonl"))
         .sort();
     } catch {
+      // Nonexistent / unreadable logDir. If the caller passed a cursor, we
+      // can't possibly honor it — fail loud per the proactive CURSOR_EXPIRED
+      // contract below (this path is just another flavor of "no files").
+      if (skip) throw cursorExpiredError();
       return { entries: [], total: 0, _cursorState: null };
     }
 
