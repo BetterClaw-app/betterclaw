@@ -83,6 +83,11 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
   private _rotationWaiters: Array<() => void> = [];
   private _rotationInFlight = false;
   private _rotationReleasers: Array<() => void> = [];
+  // FIFO queue that serializes concurrent rotations — each rotation awaits
+  // the previous one's release before it begins, preventing two rotateInner
+  // bodies from running concurrently. Reader-writer exclusion is separately
+  // enforced via `_rotationInFlight` + `_rotationReleasers`.
+  private _rotationChain: Promise<void> = Promise.resolve();
 
   private async _acquireRead(): Promise<() => void> {
     // Loop because a new rotation may start between wake-up and increment.
@@ -100,6 +105,18 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
   }
 
   private async _acquireRotation(): Promise<() => void> {
+    // Serialize with any in-flight rotation first so two `rotate()` callers
+    // cannot both see `_readersActive === 0` and race into `_rotateInner`.
+    // Each rotation advances _rotationChain to its own release signal; the
+    // next rotation awaits that signal before proceeding.
+    let releaseChain!: () => void;
+    const thisRotation = new Promise<void>((resolve) => {
+      releaseChain = resolve;
+    });
+    const prevChain = this._rotationChain;
+    this._rotationChain = thisRotation;
+    await prevChain;
+
     // Set the flag FIRST so any reader arriving during this acquire sees the
     // rotation and waits. Readers already past the while-loop (readersActive
     // > 0) must drain before we proceed; we park on _rotationReleasers.
@@ -113,6 +130,9 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
       this._rotationInFlight = false;
       const waiters = this._rotationWaiters.splice(0);
       waiters.forEach((w) => w());
+      // Release the chain last so the next rotation does NOT start until
+      // this one has cleared _rotationInFlight and drained its waiters.
+      releaseChain();
     };
   }
 
