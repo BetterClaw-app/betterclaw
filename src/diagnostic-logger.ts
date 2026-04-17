@@ -44,6 +44,53 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
   private dirEnsured = false;
   private writeChain: Promise<void> = Promise.resolve();
 
+  // Rotation mutex: readers (`readLogs`) hold shared; rotate() holds exclusive.
+  // Satisfies spec I7 per-call atomicity.
+  //
+  // Implementation note: `_acquireRead` re-checks `_rotationInFlight` in a
+  // loop after each await. Without the loop, a freshly-woken reader could
+  // bump `_readersActive` concurrently with a newly-arriving rotation that
+  // set `_rotationInFlight = true` but hasn't yet observed readers — that's
+  // the check-then-increment race. The loop + single-threaded event-loop
+  // semantics close it: when the loop condition is re-evaluated the reader
+  // either sees the new rotation (and waits) or is safely past it.
+  private _readersActive = 0;
+  private _rotationWaiters: Array<() => void> = [];
+  private _rotationInFlight = false;
+  private _rotationReleasers: Array<() => void> = [];
+
+  private async _acquireRead(): Promise<() => void> {
+    // Loop because a new rotation may start between wake-up and increment.
+    while (this._rotationInFlight) {
+      await new Promise<void>((resolve) => this._rotationWaiters.push(resolve));
+    }
+    this._readersActive++;
+    return () => {
+      this._readersActive--;
+      if (this._readersActive === 0) {
+        const releasers = this._rotationReleasers.splice(0);
+        releasers.forEach((r) => r());
+      }
+    };
+  }
+
+  private async _acquireRotation(): Promise<() => void> {
+    // Set the flag FIRST so any reader arriving during this acquire sees the
+    // rotation and waits. Readers already past the while-loop (readersActive
+    // > 0) must drain before we proceed; we park on _rotationReleasers.
+    this._rotationInFlight = true;
+    if (this._readersActive > 0) {
+      await new Promise<void>((resolve) =>
+        this._rotationReleasers.push(resolve),
+      );
+    }
+    return () => {
+      this._rotationInFlight = false;
+      const waiters = this._rotationWaiters.splice(0);
+      waiters.forEach((w) => w());
+    };
+  }
+
   constructor(logDir: string, apiLogger: PluginModuleLogger) {
     this.logDir = logDir;
     this.apiLogger = apiLogger;
@@ -103,6 +150,15 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
   }
 
   async readLogs(opts: { since?: number; limit?: number; level?: string; source?: string } = {}): Promise<{ entries: PluginLogEntry[]; total: number }> {
+    const release = await this._acquireRead();
+    try {
+      return await this._readLogsInner(opts);
+    } finally {
+      release();
+    }
+  }
+
+  private async _readLogsInner(opts: { since?: number; limit?: number; level?: string; source?: string } = {}): Promise<{ entries: PluginLogEntry[]; total: number }> {
     const since = opts.since ?? (Date.now() / 1000 - 86400);
     const limit = Math.min(opts.limit ?? 200, 50_000);
     const minLevelIdx = opts.level ? LEVEL_ORDER.indexOf(opts.level as (typeof LEVEL_ORDER)[number]) : 0;
@@ -154,6 +210,15 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
   }
 
   async rotate(): Promise<void> {
+    const release = await this._acquireRotation();
+    try {
+      await this._rotateInner();
+    } finally {
+      release();
+    }
+  }
+
+  private async _rotateInner(): Promise<void> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 7);
     const cutoffStr = this.formatDate(cutoff);
