@@ -166,3 +166,26 @@ describe("resolveAnonymizationKey", () => {
     }
   });
 });
+
+import { encodeCursor, decodeCursor } from "../src/logs-rpc.js";
+
+describe("cursor encode/decode", () => {
+  it("round-trips {ts, idx}", () => {
+    const original = { ts: 1713295000.5, idx: 3 };
+    expect(decodeCursor(encodeCursor(original))).toEqual(original);
+  });
+
+  it("rejects malformed base64 with INVALID_CURSOR", () => {
+    expect(() => decodeCursor("!!!not-base64!!!")).toThrow(/INVALID_CURSOR/);
+  });
+
+  it("rejects non-JSON payload with INVALID_CURSOR", () => {
+    const bad = Buffer.from("nope").toString("base64");
+    expect(() => decodeCursor(bad)).toThrow(/INVALID_CURSOR/);
+  });
+
+  it("rejects wrong shape with INVALID_CURSOR", () => {
+    const bad = Buffer.from(JSON.stringify({ other: 1 })).toString("base64");
+    expect(() => decodeCursor(bad)).toThrow(/INVALID_CURSOR/);
+  });
+});
