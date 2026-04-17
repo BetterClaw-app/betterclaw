@@ -407,9 +407,10 @@ export default {
         // retriable (CURSOR_EXPIRED → restart pagination) from permanent
         // (INVALID_CURSOR → caller bug). Any other failure falls through to
         // the generic LOGS_ERROR envelope.
-        const code = err instanceof Error && typeof (err as { code?: unknown }).code === "string"
-          ? (err as { code: string }).code
-          : null;
+        const maybeCode = err instanceof Error
+          ? (err as { code?: unknown }).code
+          : undefined;
+        const code = typeof maybeCode === "string" ? maybeCode : null;
         if (code === "INVALID_CURSOR" || code === "CURSOR_EXPIRED") {
           respond(false, undefined, { code, message: (err as Error).message });
           return;
