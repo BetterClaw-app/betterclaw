@@ -18,6 +18,17 @@ function dayBoundsInclude(filename: string, ts: number): boolean {
   return ts >= startOfDay && ts < startOfDay + 86400;
 }
 
+/**
+ * Build a CURSOR_EXPIRED error with a static user-facing message and a
+ * structured `.code` for downstream routing. The message is intentionally
+ * generic so retention policy, filenames, and dates never leak — see Task 7.
+ */
+function cursorExpiredError(): Error {
+  const e = new Error("cursor is no longer valid");
+  (e as any).code = "CURSOR_EXPIRED";
+  return e;
+}
+
 /** Lean interface for module-facing logging. Modules import `dlog` and call these methods. */
 export interface DiagnosticLogWriter {
   debug(source: string, event: string, message: string, data?: Record<string, unknown>): void;
@@ -198,14 +209,14 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
     //       file (rotation trimmed the day we were paging through).
     if (skip) {
       if (files.length === 0) {
-        throw new Error("CURSOR_EXPIRED");
+        throw cursorExpiredError();
       }
       const earliest = files[0];
       const match = earliest.match(/diagnostic-(\d{4}-\d{2}-\d{2})\.jsonl/);
       if (match) {
         const earliestStartOfDay = new Date(match[1] + "T00:00:00").getTime() / 1000;
         if (skip.ts < earliestStartOfDay) {
-          throw new Error("CURSOR_EXPIRED");
+          throw cursorExpiredError();
         }
       }
     }
@@ -230,7 +241,7 @@ export class PluginDiagnosticLogger implements DiagnosticLogWriter {
           // Reactive CURSOR_EXPIRED: a cursor-resumed read raced with rotation
           // or manual deletion on the file whose day bounds contain our resume
           // point. Fail loud so the caller knows to restart pagination.
-          throw new Error("CURSOR_EXPIRED");
+          throw cursorExpiredError();
         }
         continue;
       }
