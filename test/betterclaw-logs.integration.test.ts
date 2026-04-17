@@ -200,7 +200,7 @@ describe("betterclaw.logs RPC", () => {
         dlog,
         key,
       ),
-    ).rejects.toThrow(/CURSOR_EXPIRED/);
+    ).rejects.toThrow(/cursor is no longer valid/);
   });
 
   it("returns INVALID_CURSOR on malformed cursor string", async () => {
@@ -211,7 +211,42 @@ describe("betterclaw.logs RPC", () => {
         dlog,
         key,
       ),
-    ).rejects.toThrow(/INVALID_CURSOR/);
+    ).rejects.toThrow(/cursor is malformed/);
+  });
+
+  it("CURSOR_EXPIRED message is static — no filename or date leak", async () => {
+    dlog.info("plugin.service", "loaded", "recent");
+    await dlog.flush();
+    const ancient = encodeCursor({ ts: 0, idx: 0 });
+    try {
+      await handleLogsRpc(
+        { settings: allOn(), limit: 10, after: ancient },
+        dlog,
+        key,
+      );
+      throw new Error("expected rejection");
+    } catch (err: any) {
+      expect(err.message).toBe("cursor is no longer valid");
+      // Must not leak retention policy or filenames or dates.
+      expect(err.message).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+      expect(err.message).not.toMatch(/diagnostic-/);
+      expect(err.message).not.toMatch(/7 days/);
+      expect(err.code).toBe("CURSOR_EXPIRED");
+    }
+  });
+
+  it("INVALID_CURSOR message is static", async () => {
+    try {
+      await handleLogsRpc(
+        { settings: allOn(), limit: 10, after: "!!!garbage" },
+        dlog,
+        key,
+      );
+      throw new Error("expected rejection");
+    } catch (err: any) {
+      expect(err.message).toBe("cursor is malformed");
+      expect(err.code).toBe("INVALID_CURSOR");
+    }
   });
 
   it("entries field is base64-encoded gzipped JSON array", async () => {
@@ -308,16 +343,16 @@ describe("cursor encode/decode", () => {
   });
 
   it("rejects malformed base64 with INVALID_CURSOR", () => {
-    expect(() => decodeCursor("!!!not-base64!!!")).toThrow(/INVALID_CURSOR/);
+    expect(() => decodeCursor("!!!not-base64!!!")).toThrow(/cursor is malformed/);
   });
 
   it("rejects non-JSON payload with INVALID_CURSOR", () => {
     const bad = Buffer.from("nope").toString("base64");
-    expect(() => decodeCursor(bad)).toThrow(/INVALID_CURSOR/);
+    expect(() => decodeCursor(bad)).toThrow(/cursor is malformed/);
   });
 
   it("rejects wrong shape with INVALID_CURSOR", () => {
     const bad = Buffer.from(JSON.stringify({ other: 1 })).toString("base64");
-    expect(() => decodeCursor(bad)).toThrow(/INVALID_CURSOR/);
+    expect(() => decodeCursor(bad)).toThrow(/cursor is malformed/);
   });
 });

@@ -8,18 +8,30 @@ export function encodeCursor(state: CursorState): string {
   return Buffer.from(JSON.stringify(state), "utf8").toString("base64");
 }
 
+/**
+ * Build an INVALID_CURSOR error with a static user-facing message and a
+ * structured `.code` for downstream routing. The message is intentionally
+ * generic so nothing about the submitted cursor value (or internal file
+ * layout) leaks to the caller — see Task 7.
+ */
+function invalidCursorError(): Error {
+  const e = new Error("cursor is malformed");
+  (e as any).code = "INVALID_CURSOR";
+  return e;
+}
+
 export function decodeCursor(s: string): CursorState {
   let decoded: string;
   try {
     decoded = Buffer.from(s, "base64").toString("utf8");
   } catch {
-    throw new Error("INVALID_CURSOR");
+    throw invalidCursorError();
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(decoded);
   } catch {
-    throw new Error("INVALID_CURSOR");
+    throw invalidCursorError();
   }
   if (
     typeof parsed !== "object" ||
@@ -27,7 +39,7 @@ export function decodeCursor(s: string): CursorState {
     typeof (parsed as any).ts !== "number" ||
     typeof (parsed as any).idx !== "number"
   ) {
-    throw new Error("INVALID_CURSOR");
+    throw invalidCursorError();
   }
   return parsed as CursorState;
 }
