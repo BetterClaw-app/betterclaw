@@ -176,9 +176,10 @@ export const MANIFEST: {
     "plugin.triage": {
       exportCategory: "lifecycle",
       events: {
-        "triage.called":   { level: "info",  requiredKeys: ["subscriptionId", "model"] },
-        "triage.result":   { level: "info",  requiredKeys: ["subscriptionId", "decision"] },
-        "triage.fallback": { level: "error", requiredKeys: ["subscriptionId", "fallbackAction"] },
+        "triage.called":     { level: "info",    requiredKeys: ["subscriptionId", "model"] },
+        "triage.result":     { level: "info",    requiredKeys: ["subscriptionId", "decision"] },
+        "triage.fallback":   { level: "error",   requiredKeys: ["subscriptionId", "fallbackAction"] },
+        "triage.http.error": { level: "warning", requiredKeys: ["status"] },
       },
     },
     "plugin.context": {

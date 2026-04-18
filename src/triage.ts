@@ -155,15 +155,19 @@ export async function triageEvent(
               },
             },
           },
-          max_tokens: 200,
-          temperature: 0,
+          max_completion_tokens: 200,
         }),
       });
     } finally {
       clearTimeout(timeout);
     }
 
-    if (!response.ok) return { action: "drop", reason: `triage API error: ${response.status} — defaulting to drop` };
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      dlog.warning("plugin.triage", "triage.http.error", "triage API non-ok",
+        { status: response.status, body: body.slice(0, 500) });
+      return { action: "drop", reason: `triage API error: ${response.status} — defaulting to drop` };
+    }
 
     const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
     const content = data.choices?.[0]?.message?.content;
