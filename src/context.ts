@@ -257,8 +257,8 @@ export class ContextManager {
     return { ...this.runtimeState };
   }
 
-  setRuntimeState(state: RuntimeState): void {
-    this.runtimeState = { ...state };
+  setRuntimeState(state: Partial<RuntimeState>): void {
+    this.runtimeState = { ...this.runtimeState, ...state };
   }
 
   getDeviceConfig(): DeviceConfig {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { processEvent } from "../src/pipeline.js";
 import type { PipelineDeps } from "../src/pipeline.js";
 import type { RunLearnerDeps } from "../src/learner.js";
@@ -7,18 +7,17 @@ import { ContextManager } from "../src/context.js";
 import { EventLog } from "../src/events.js";
 import { RulesEngine } from "../src/filter.js";
 import { ReactionTracker } from "../src/reactions.js";
-import { makeTmpDir, mockLogger } from "./helpers.js";
+import { AuditLog } from "../src/routing/audit-log.js";
+import { RoutingConfigStore } from "../src/routing/config-store.js";
+import { makeTmpDir } from "./helpers.js";
 import type { DeviceEvent, PluginConfig } from "../src/types.js";
 
 // Note: diagnostic-logger.js is NOT mocked here — dlog defaults to a NOOP
 // singleton (src/diagnostic-logger.ts:24), so unmocked usage is safe.
 
-// Mock triage + learner + jwt for pipeline error tests
+// Mock triage + jwt for pipeline error tests
 vi.mock("../src/triage.js", () => ({
-  triageEvent: vi.fn(async () => ({ push: true, reason: "mocked triage" })),
-}));
-vi.mock("../src/learner.js", () => ({
-  loadTriageProfile: vi.fn(async () => null),
+  triageEvent: vi.fn(async () => ({ action: "notify", reason: "mocked triage" })),
 }));
 vi.mock("../src/jwt.js", () => ({
   requireEntitlement: vi.fn(() => null),
@@ -32,7 +31,6 @@ const baseConfig: PluginConfig = {
   analysisHour: 7,
   deduplicationCooldowns: {},
   defaultCooldown: 1800,
-  calibrationDays: 3,
 };
 
 function makeBatteryCriticalEvent(): DeviceEvent {
@@ -68,6 +66,8 @@ async function makeDeps(tmpDir: string, apiOverrides?: { runRejects?: boolean })
   const events = new EventLog(tmpDir);
   const rules = new RulesEngine(baseConfig.pushBudgetPerDay, baseConfig.deduplicationCooldowns, baseConfig.defaultCooldown);
   const reactions = new ReactionTracker(tmpDir);
+  const audit = new AuditLog(tmpDir);
+  const routing = await RoutingConfigStore.load(tmpDir, audit);
 
   return {
     api: makeMockApi(apiOverrides),
@@ -77,6 +77,8 @@ async function makeDeps(tmpDir: string, apiOverrides?: { runRejects?: boolean })
     rules,
     reactions,
     stateDir: tmpDir,
+    routing,
+    audit,
   };
 }
 
@@ -97,12 +99,12 @@ describe("pipeline error paths", () => {
     const event = makeBatteryCriticalEvent();
     await processEvent(deps, event);
 
-    // Read event log — last entry should be "drop" with reason containing "push failed"
+    // Read event log — last entry should be "drop" with reason containing "dispatch failed"
     const entries = await deps.events.readSince(0);
     expect(entries.length).toBeGreaterThanOrEqual(1);
     const last = entries[entries.length - 1];
     expect(last.decision).toBe("drop");
-    expect(last.reason).toContain("push failed");
+    expect(last.reason).toContain("dispatch failed");
   });
 
   it("context.save failure does not throw and event is still logged", async () => {
@@ -167,6 +169,8 @@ describe("learner error paths", () => {
     const context = new ContextManager(tmpDir);
     const events = new EventLog(tmpDir);
     const reactions = new ReactionTracker(tmpDir);
+    const audit = new AuditLog(tmpDir);
+    const routing = await RoutingConfigStore.load(tmpDir, audit);
 
     const deps: RunLearnerDeps = {
       stateDir: tmpDir,
@@ -175,6 +179,8 @@ describe("learner error paths", () => {
       events,
       reactions,
       api,
+      routing,
+      audit,
     };
 
     // runLearner uses try/finally (no catch) — error propagates but deleteSession still runs
@@ -196,7 +202,7 @@ describe("learner error paths", () => {
           waitForRun: vi.fn(async () => ({ status: "completed" })),
           getSessionMessages: vi.fn(async () => ({
             messages: [
-              { role: "assistant", content: JSON.stringify({ summary: "test user", interruptionTolerance: "normal" }) },
+              { role: "assistant", content: JSON.stringify({ patchOps: [], reason: "no change" }) },
             ],
           })),
         },
@@ -209,6 +215,8 @@ describe("learner error paths", () => {
     const context = new ContextManager(tmpDir);
     const events = new EventLog(tmpDir);
     const reactions = new ReactionTracker(tmpDir);
+    const audit = new AuditLog(tmpDir);
+    const routing = await RoutingConfigStore.load(tmpDir, audit);
 
     // Sabotage reactions.save
     vi.spyOn(reactions, "save").mockResolvedValue(false);
@@ -220,29 +228,12 @@ describe("learner error paths", () => {
       events,
       reactions,
       api,
+      routing,
+      audit,
     };
 
     // Should complete without throwing
     await expect(runLearner(deps)).resolves.toBeUndefined();
-  });
-});
-
-// ---------- saveTriageProfile disk error ----------
-
-describe("saveTriageProfile disk error", () => {
-  it("returns false and logs error when write fails", async () => {
-    const { saveTriageProfile } = await vi.importActual<typeof import("../src/learner.js")>("../src/learner.js");
-    const logger = mockLogger();
-
-    const result = await saveTriageProfile(
-      "/dev/null/nonexistent/deeply/nested",
-      { summary: "test", interruptionTolerance: "normal", computedAt: Date.now() / 1000 },
-      logger,
-    );
-
-    expect(result).toBe(false);
-    expect(logger.error).toHaveBeenCalledTimes(1);
-    expect(logger.error.mock.calls[0][0]).toContain("triage profile save failed");
   });
 });
 

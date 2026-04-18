@@ -14,11 +14,13 @@ import { processEvent } from "./pipeline.js";
 import type { PipelineDeps } from "./pipeline.js";
 import { BETTERCLAW_COMMANDS, BETTERCLAW_TOOLS, mergeAllowCommands, mergeAlsoAllow } from "./cli.js";
 import { storeJwt } from "./jwt.js";
-import { loadTriageProfile, runLearner } from "./learner.js";
+import { runLearner } from "./learner.js";
 import { ReactionTracker } from "./reactions.js";
 import { createCheckTierTool } from "./tools/check-tier.js";
 import { scanPendingReactions } from "./reaction-scanner.js";
-import * as fs from "node:fs/promises";
+import { RoutingConfigStore } from "./routing/config-store.js";
+import { AuditLog } from "./routing/audit-log.js";
+import { createEditRoutingRulesTool } from "./tools/edit-routing-rules.js";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -40,7 +42,6 @@ const DEFAULT_CONFIG: PluginConfig = {
   analysisHour: 5,
   deduplicationCooldowns: DEFAULT_COOLDOWNS,
   defaultCooldown: 1800,
-  calibrationDays: 3,
 };
 
 export function resolveConfig(raw: Record<string, unknown> | undefined): PluginConfig {
@@ -59,7 +60,6 @@ export function resolveConfig(raw: Record<string, unknown> | undefined): PluginC
         : {}),
     },
     defaultCooldown: typeof cfg.defaultCooldown === "number" && cfg.defaultCooldown > 0 ? cfg.defaultCooldown : 1800,
-    calibrationDays: typeof cfg.calibrationDays === "number" && cfg.calibrationDays > 0 ? cfg.calibrationDays : 3,
   };
 }
 
@@ -75,26 +75,6 @@ export default {
 
     diagnosticLogger.info("plugin.service", "loaded", "plugin loaded", { model: config.triageModel, budget: config.pushBudgetPerDay });
 
-    // Calibration state
-    let calibrationStartedAt: number | null = null;
-
-    const calibrationFile = path.join(stateDir, "calibration.json");
-    (async () => {
-      try {
-        const raw = await fs.readFile(calibrationFile, "utf8");
-        const parsed = JSON.parse(raw);
-        calibrationStartedAt = parsed.startedAt ?? null;
-      } catch {
-        // No calibration file yet — will be created on first premium ping
-      }
-    })();
-
-    function isCalibrating(): boolean {
-      if (!calibrationStartedAt) return true;
-      const elapsed = Date.now() / 1000 - calibrationStartedAt;
-      return elapsed < config.calibrationDays * 86400;
-    }
-
     // Context manager (load synchronously — file read deferred to first access)
     const ctxManager = new ContextManager(stateDir, diagnosticLogger.scoped("plugin.context"));
 
@@ -103,7 +83,11 @@ export default {
     const rules = new RulesEngine(config.pushBudgetPerDay, config.deduplicationCooldowns, config.defaultCooldown);
     const reactionTracker = new ReactionTracker(stateDir, diagnosticLogger.scoped("plugin.reactions"));
 
-    // Pipeline dependencies
+    // Routing config store + audit log — loaded async
+    const auditLog = new AuditLog(stateDir);
+    let routingStore: RoutingConfigStore;
+
+    // Pipeline dependencies — routing filled in after initPromise resolves
     const pipelineDeps: PipelineDeps = {
       api,
       config,
@@ -112,6 +96,8 @@ export default {
       rules,
       reactions: reactionTracker,
       stateDir,
+      routing: undefined as unknown as RoutingConfigStore,
+      audit: auditLog,
     };
 
     const pluginVersion = "2.0.0";
@@ -134,6 +120,13 @@ export default {
       } catch (err) {
         diagnosticLogger.warning("plugin.service", "init.phase", "reaction tracker load failed", { phase: "reactions", success: false, ...errorFields(err) });
       }
+      try {
+        routingStore = await RoutingConfigStore.load(stateDir, auditLog);
+        pipelineDeps.routing = routingStore;
+        diagnosticLogger.info("plugin.service", "init.phase", "routing loaded", { phase: "routing", success: true });
+      } catch (err) {
+        diagnosticLogger.error("plugin.service", "init.phase", "routing init failed", { phase: "routing", success: false, ...errorFields(err) });
+      }
       if (initialized) {
         try {
           const recentEvents = await eventLog.readSince(Date.now() / 1000 - 86400);
@@ -155,6 +148,9 @@ export default {
       const rawTier = (params as Record<string, unknown>)?.tier as string;
       const tier = validTiers.includes(rawTier as any) ? (rawTier as "free" | "premium") : "free";
       const smartMode = (params as Record<string, unknown>)?.smartMode === true;
+      const tz = typeof (params as Record<string, unknown>)?.tz === "string"
+        ? (params as Record<string, unknown>).tz as string
+        : undefined;
 
       const jwt = (params as Record<string, unknown>)?.jwt as string | undefined;
       if (jwt) {
@@ -168,18 +164,7 @@ export default {
         diagnosticLogger.info("plugin.rpc", "ping.received", "device ping", { tier, smartMode, nodeConnected: context.hasConnectedMobileNode() });
       }
 
-      ctxManager.setRuntimeState({ tier, smartMode });
-
-      // Initialize calibration on first premium ping
-      if (tier === "premium" && calibrationStartedAt === null) {
-        const existingProfile = await loadTriageProfile(stateDir);
-        if (existingProfile?.computedAt) {
-          calibrationStartedAt = existingProfile.computedAt - config.calibrationDays * 86400;
-        } else {
-          calibrationStartedAt = Date.now() / 1000;
-        }
-        fs.writeFile(calibrationFile, JSON.stringify({ startedAt: calibrationStartedAt }), "utf8").catch(() => {});
-      }
+      ctxManager.setRuntimeState({ tier, smartMode, ...(tz ? { tz } : {}) });
 
       const meta = ctxManager.get().meta;
       const effectiveBudget = ctxManager.getDeviceConfig().pushBudgetPerDay ?? config.pushBudgetPerDay;
@@ -234,7 +219,6 @@ export default {
         };
         const patterns = await ctxManager.readPatterns();
         const recentEntries = await eventLog.readRecent(20);
-        const profile = await loadTriageProfile(stateDir);
 
         const activity = {
           currentZone: state.activity.currentZone,
@@ -285,14 +269,12 @@ export default {
         respond(true, {
           tier: runtime.tier,
           smartMode: runtime.smartMode,
-          calibrating: isCalibrating(),
           activity,
           trends,
           decisions,
           meta,
           routines,
           timestamps,
-          triageProfile: profile ?? null,
         });
       } catch (err) {
         diagnosticLogger.error("plugin.rpc", "context.error", "context RPC failed", errorFields(err));
@@ -300,7 +282,7 @@ export default {
       }
     });
 
-    // Learn RPC — trigger on-demand triage profile learning
+    // Learn RPC — trigger on-demand routing rule tuning
     api.registerGatewayMethod("betterclaw.learn", async ({ respond }) => {
       try {
         diagnosticLogger.info("plugin.rpc", "learn.triggered", "learn RPC triggered");
@@ -309,17 +291,6 @@ export default {
         if (learnerRunning) {
           respond(true, { ok: false, error: "already-running" });
           return;
-        }
-
-        // Soft cooldown: 1 hour since last profile
-        const profile = await loadTriageProfile(stateDir);
-        if (profile?.computedAt) {
-          const elapsed = Date.now() / 1000 - profile.computedAt;
-          if (elapsed < 3600) {
-            const nextAvailableAt = profile.computedAt + 3600;
-            respond(true, { ok: false, error: "cooldown", nextAvailableAt });
-            return;
-          }
         }
 
         learnerRunning = true;
@@ -331,13 +302,10 @@ export default {
             events: eventLog,
             reactions: reactionTracker,
             api,
+            routing: routingStore,
+            audit: auditLog,
           });
-          const updatedProfile = await loadTriageProfile(stateDir);
-          respond(true, {
-            ok: true,
-            summary: updatedProfile?.summary ?? null,
-            computedAt: updatedProfile?.computedAt ?? null,
-          });
+          respond(true, { ok: true, summary: "learner tuned routing rules" });
         } finally {
           learnerRunning = false;
         }
@@ -416,15 +384,9 @@ export default {
     });
 
     // Agent tools
-    api.registerTool(
-      createCheckTierTool(ctxManager, () => ({
-        calibrating: isCalibrating(),
-        calibrationEndsAt: calibrationStartedAt
-          ? calibrationStartedAt + config.calibrationDays * 86400
-          : undefined,
-      })),
-    );
+    api.registerTool(createCheckTierTool(ctxManager));
     api.registerTool(createGetContextTool(ctxManager, stateDir));
+    api.registerTool(createEditRoutingRulesTool(() => routingStore));
 
     // Auto-reply command
     api.registerCommand({
@@ -523,6 +485,8 @@ export default {
                 events: eventLog,
                 reactions: reactionTracker,
                 api,
+                routing: routingStore,
+                audit: auditLog,
               });
               diagnosticLogger.info("plugin.learner", "learner.completed", "daily learner completed", { durationMs: Date.now() - learnerStart });
             } catch (err) {

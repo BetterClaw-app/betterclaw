@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { triageEvent } from "../../src/triage.js";
 import type { ContextManager } from "../../src/context.js";
-import type { DeviceEvent, TriageProfile } from "../../src/types.js";
+import type { DeviceEvent } from "../../src/types.js";
 
 vi.mock("../../src/diagnostic-logger.js", () => ({
   dlog: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -27,18 +27,13 @@ function makeContext(): ContextManager {
   } as unknown as ContextManager;
 }
 
-const profile: TriageProfile = {
-  summary: "User prefers minimal interruptions",
-  interruptionTolerance: "low",
-  computedAt: Date.now() / 1000,
-};
-
 const config = { triageModel: "openai/gpt-4o-mini" };
-
+const quietHours = { start: "22:00", end: "07:00", tz: "auto" };
+const currentLocalTime = "14:00";
 
 describe("triageEvent", () => {
-  it("returns push decision on successful API call", async () => {
-    const body = { push: true, reason: "critical battery", priority: "high" };
+  it("returns push action on successful API call", async () => {
+    const body = { action: "push", reason: "critical battery", priority: "high" };
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -49,9 +44,12 @@ describe("triageEvent", () => {
       })),
     );
 
-    const result = await triageEvent(makeEvent(), makeContext(), profile, config, async () => "sk-test");
+    const result = await triageEvent(
+      makeEvent(), makeContext(), [], new Set(), [], quietHours, currentLocalTime,
+      config, async () => "sk-test",
+    );
 
-    expect(result.push).toBe(true);
+    expect(result.action).toBe("push");
     expect(result.reason).toBe("critical battery");
     expect(result.priority).toBe("high");
   });
@@ -67,16 +65,22 @@ describe("triageEvent", () => {
       })),
     );
 
-    const result = await triageEvent(makeEvent(), makeContext(), profile, config, async () => "sk-test");
+    const result = await triageEvent(
+      makeEvent(), makeContext(), [], new Set(), [], quietHours, currentLocalTime,
+      config, async () => "sk-test",
+    );
 
-    expect(result.push).toBe(false);
+    expect(result.action).toBe("drop");
     expect(result.reason).toContain("failed to parse");
   });
 
   it("returns drop when API key is missing", async () => {
-    const result = await triageEvent(makeEvent(), makeContext(), profile, config, async () => undefined);
+    const result = await triageEvent(
+      makeEvent(), makeContext(), [], new Set(), [], quietHours, currentLocalTime,
+      config, async () => undefined,
+    );
 
-    expect(result.push).toBe(false);
+    expect(result.action).toBe("drop");
     expect(result.reason).toContain("no API key");
   });
 
@@ -86,9 +90,12 @@ describe("triageEvent", () => {
       vi.fn(async () => ({ ok: false, status: 429 })),
     );
 
-    const result = await triageEvent(makeEvent(), makeContext(), profile, config, async () => "sk-test");
+    const result = await triageEvent(
+      makeEvent(), makeContext(), [], new Set(), [], quietHours, currentLocalTime,
+      config, async () => "sk-test",
+    );
 
-    expect(result.push).toBe(false);
+    expect(result.action).toBe("drop");
     expect(result.reason).toContain("429");
   });
 
@@ -100,9 +107,12 @@ describe("triageEvent", () => {
       }),
     );
 
-    const result = await triageEvent(makeEvent(), makeContext(), profile, config, async () => "sk-test");
+    const result = await triageEvent(
+      makeEvent(), makeContext(), [], new Set(), [], quietHours, currentLocalTime,
+      config, async () => "sk-test",
+    );
 
-    expect(result.push).toBe(false);
+    expect(result.action).toBe("drop");
     expect(result.reason).toContain("triage call failed");
   });
 
@@ -115,9 +125,12 @@ describe("triageEvent", () => {
       })),
     );
 
-    const result = await triageEvent(makeEvent(), makeContext(), profile, config, async () => "sk-test");
+    const result = await triageEvent(
+      makeEvent(), makeContext(), [], new Set(), [], quietHours, currentLocalTime,
+      config, async () => "sk-test",
+    );
 
-    expect(result.push).toBe(false);
+    expect(result.action).toBe("drop");
     expect(result.reason).toContain("empty triage response");
   });
 
@@ -125,12 +138,15 @@ describe("triageEvent", () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       json: async () => ({
-        choices: [{ message: { content: '{"push":false,"reason":"test","priority":"low"}' } }],
+        choices: [{ message: { content: '{"action":"drop","reason":"test","priority":"low"}' } }],
       }),
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await triageEvent(makeEvent(), makeContext(), profile, { triageModel: "openai/gpt-4o-mini" }, async () => "sk-test");
+    await triageEvent(
+      makeEvent(), makeContext(), [], new Set(), [], quietHours, currentLocalTime,
+      { triageModel: "openai/gpt-4o-mini" }, async () => "sk-test",
+    );
 
     const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(callBody.model).toBe("gpt-4o-mini");

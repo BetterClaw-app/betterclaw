@@ -160,14 +160,6 @@ export interface PluginConfig {
   analysisHour: number;
   deduplicationCooldowns: Record<string, number>;
   defaultCooldown: number;
-  calibrationDays: number;
-}
-
-// Triage profile produced by daily learning agent
-export interface TriageProfile {
-  summary: string;              // 1-2 sentence description of what the user cares about
-  interruptionTolerance: "low" | "normal" | "high";
-  computedAt: number;           // epoch seconds
 }
 
 // Reaction tracking for pushed events
