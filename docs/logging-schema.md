@@ -15,14 +15,6 @@
 
 ## Sources
 
-### `plugin.calibration` — export category `lifecycle`
-
-| event | level | required data |
-|---|---|---|
-| `calibration.error` | `warning` | — |
-| `calibration.skipped` | `info` | — |
-| `calibration.started` | `info` | — |
-
 ### `plugin.context` — export category `health` — **field-level category mapping enabled**
 
 | event | level | required data |
@@ -74,7 +66,10 @@
 | `event.blocked` | `info` | `subscriptionId` |
 | `event.error` | `error` | — |
 | `event.free.stored` | `info` | `subscriptionId` |
+| `event.notified` | `info` | `subscriptionId` |
+| `event.pushed` | `info` | `subscriptionId` |
 | `event.received` | `info` | `subscriptionId`, `source` |
+| `notify.channel.unknown` | `warning` | `subscriptionId` |
 | `push.decided` | `info` | `subscriptionId`, `decision` |
 | `push.failed` | `error` | `subscriptionId` |
 | `push.sent` | `info` | `subscriptionId` |
@@ -94,6 +89,17 @@
 | `scan.skipped` | `info` | `subscriptionId`, `pushedAt` |
 | `scan.started` | `info` | `pendingCount` |
 | `warn` | `warning` | — |
+
+### `plugin.routing` — export category `lifecycle`
+
+| event | level | required data |
+|---|---|---|
+| `autorule.failed` | `error` | — |
+| `autorule.inserted` | `info` | `ruleId` |
+| `config.bootstrapped` | `info` | — |
+| `config.load.error` | `error` | — |
+| `config.manual.edit.detected` | `info` | — |
+| `config.patch.invalid` | `warning` | — |
 
 ### `plugin.rpc` — export category `lifecycle`
 
@@ -142,7 +148,7 @@ Each category is a boolean in `ExportSettings`. Disabling a category drops all e
 | `heartbeat` | — |
 | `commands` | — |
 | `dns` | — |
-| `lifecycle` | `plugin.calibration`, `plugin.events`, `plugin.filter`, `plugin.learner`, `plugin.pipeline`, `plugin.rpc`, `plugin.service`, `plugin.triage` |
+| `lifecycle` | `plugin.events`, `plugin.filter`, `plugin.learner`, `plugin.pipeline`, `plugin.routing`, `plugin.rpc`, `plugin.service`, `plugin.triage` |
 | `battery` | — |
 | `subscriptions` | `plugin.reactions` |
 | `health` | `plugin.context`, `plugin.patterns` |

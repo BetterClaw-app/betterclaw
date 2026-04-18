@@ -120,14 +120,6 @@ export const MANIFEST: {
         "logs.error":        { level: "error",   requiredKeys: [] },
       },
     },
-    "plugin.calibration": {
-      exportCategory: "lifecycle",
-      events: {
-        "calibration.skipped": { level: "info",    requiredKeys: [] },
-        "calibration.started": { level: "info",    requiredKeys: [] },
-        "calibration.error":   { level: "warning", requiredKeys: [] },
-      },
-    },
     "plugin.pipeline": {
       exportCategory: "lifecycle",
       events: {
@@ -139,6 +131,20 @@ export const MANIFEST: {
         "push.sent":         { level: "info",  requiredKeys: ["subscriptionId"] },
         "push.failed":       { level: "error", requiredKeys: ["subscriptionId"] },
         "dedup.checked":     { level: "debug", requiredKeys: ["subscriptionId", "currentLevel", "lastPushedLevel", "deduplicated"] },
+        "event.pushed":      { level: "info",  requiredKeys: ["subscriptionId"] },
+        "event.notified":    { level: "info",  requiredKeys: ["subscriptionId"] },
+        "notify.channel.unknown": { level: "warning", requiredKeys: ["subscriptionId"] },
+      },
+    },
+    "plugin.routing": {
+      exportCategory: "lifecycle",
+      events: {
+        "config.bootstrapped":   { level: "info",    requiredKeys: [] },
+        "config.load.error":    { level: "error",   requiredKeys: [] },
+        "config.manual.edit.detected": { level: "info", requiredKeys: [] },
+        "config.patch.invalid":  { level: "warning", requiredKeys: [] },
+        "autorule.inserted":    { level: "info",    requiredKeys: ["ruleId"] },
+        "autorule.failed":      { level: "error",   requiredKeys: [] },
       },
     },
     "plugin.reactions": {
