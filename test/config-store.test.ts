@@ -83,3 +83,66 @@ describe("RoutingConfigStore.load — first run", () => {
 async function fileExists(p: string): Promise<boolean> {
   try { await fs.stat(p); return true; } catch { return false; }
 }
+
+describe("RoutingConfigStore.applyPatch", () => {
+  it("applies a patch, writes the new config, and appends an agent audit entry", async () => {
+    const log = new AuditLog(tmpDir);
+    const store = await RoutingConfigStore.load(tmpDir, log);
+    const result = await store.applyPatch(
+      [{ op: "replace", path: "/quietHours/start", value: "22:00" }],
+      "agent",
+      "user asked to start quiet hours at 10pm",
+    );
+    expect(result.applied).toHaveLength(1);
+    expect(result.dropped).toHaveLength(0);
+    expect(store.getRules().quietHours.start).toBe("22:00");
+
+    // File + lastknown updated
+    const filePath = path.join(tmpDir, "routing-rules.json");
+    const written = JSON.parse(await fs.readFile(filePath, "utf8"));
+    expect(written.quietHours.start).toBe("22:00");
+
+    // Audit entry appended
+    const entries = await log.readSince(0);
+    const agentEntries = entries.filter(e => e.source === "agent");
+    expect(agentEntries).toHaveLength(1);
+    expect(agentEntries[0].reason).toBe("user asked to start quiet hours at 10pm");
+  });
+
+  it("drops ops targeting locked keys, still applies others", async () => {
+    const log = new AuditLog(tmpDir);
+    const store = await RoutingConfigStore.load(tmpDir, log);
+    // Simulate a user lock
+    await log.appendEdit({
+      ts: Math.floor(Date.now() / 1000) - 100,
+      source: "user",
+      docChecksum: "xxx",
+      diffs: [{ path: "/quietHours/start", from: "23:00", to: "22:30" }],
+      expiresAt: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const result = await store.applyPatch(
+      [
+        { op: "replace", path: "/quietHours/start", value: "21:00" },  // locked
+        { op: "replace", path: "/quietHours/end", value: "08:00" },    // allowed
+      ],
+      "learner",
+      "daily tuning",
+    );
+    expect(result.applied.map(a => a.path)).toEqual(["/quietHours/end"]);
+    expect(result.dropped.map(d => d.op.path)).toEqual(["/quietHours/start"]);
+  });
+
+  it("serializes concurrent applyPatch calls", async () => {
+    const log = new AuditLog(tmpDir);
+    const store = await RoutingConfigStore.load(tmpDir, log);
+    const results = await Promise.all([
+      store.applyPatch([{ op: "add", path: "/rules/-", value: { id: "r1", match: "*", action: "push", explicit: true } }], "agent", "a"),
+      store.applyPatch([{ op: "add", path: "/rules/-", value: { id: "r2", match: "*", action: "push", explicit: true } }], "agent", "b"),
+    ]);
+    expect(results[0].applied).toHaveLength(1);
+    expect(results[1].applied).toHaveLength(1);
+    const ids = store.getRules().rules.map(r => r.id);
+    expect(ids).toContain("r1");
+    expect(ids).toContain("r2");
+  });
+});
