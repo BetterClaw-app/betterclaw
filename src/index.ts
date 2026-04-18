@@ -175,14 +175,10 @@ export default {
         const existingProfile = await loadTriageProfile(stateDir);
         if (existingProfile?.computedAt) {
           calibrationStartedAt = existingProfile.computedAt - config.calibrationDays * 86400;
-          diagnosticLogger.info("plugin.calibration", "calibration.skipped", "existing triage profile found");
         } else {
           calibrationStartedAt = Date.now() / 1000;
-          diagnosticLogger.info("plugin.calibration", "calibration.started", "calibration period started");
         }
-        fs.writeFile(calibrationFile, JSON.stringify({ startedAt: calibrationStartedAt }), "utf8").catch((err) => {
-          diagnosticLogger.warning("plugin.calibration", "calibration.error", "calibration file write failed", errorFields(err));
-        });
+        fs.writeFile(calibrationFile, JSON.stringify({ startedAt: calibrationStartedAt }), "utf8").catch(() => {});
       }
 
       const meta = ctxManager.get().meta;
