@@ -58,3 +58,53 @@ describe("AuditLog.appendEdit + readSince", () => {
     expect(entries.map(e => e.ts)).toEqual([100, 200]);
   });
 });
+
+import { computeLockedKeys } from "../src/routing/audit-log.js";
+
+describe("computeLockedKeys", () => {
+  const WINDOW = 14 * 86400;
+  const NOW = 1776000000;
+
+  it("returns empty set when no entries", () => {
+    expect(computeLockedKeys([], NOW, WINDOW)).toEqual(new Set());
+  });
+
+  it("only considers source: user entries", () => {
+    const entries: AuditEntry[] = [
+      { ts: NOW - 1000, source: "agent", docChecksum: "x", diffs: [{ path: "/a", from: 1, to: 2 }] },
+      { ts: NOW - 1000, source: "learner", docChecksum: "x", diffs: [{ path: "/b", from: 1, to: 2 }] },
+      { ts: NOW - 1000, source: "default", docChecksum: "x", diffs: [{ path: "/c", from: 1, to: 2 }] },
+    ];
+    expect(computeLockedKeys(entries, NOW, WINDOW)).toEqual(new Set());
+  });
+
+  it("locks paths from unexpired user entries", () => {
+    const entries: AuditEntry[] = [
+      { ts: NOW - 1000, source: "user", docChecksum: "x",
+        diffs: [{ path: "/rules/0/action", from: "notify", to: "drop" }],
+        expiresAt: NOW + 100 },
+    ];
+    expect(computeLockedKeys(entries, NOW, WINDOW)).toEqual(new Set(["/rules/0/action"]));
+  });
+
+  it("ignores expired user entries", () => {
+    const entries: AuditEntry[] = [
+      { ts: NOW - 20 * 86400, source: "user", docChecksum: "x",
+        diffs: [{ path: "/rules/0/action", from: "notify", to: "drop" }],
+        expiresAt: NOW - 6 * 86400 },
+    ];
+    expect(computeLockedKeys(entries, NOW, WINDOW)).toEqual(new Set());
+  });
+
+  it("unions paths from multiple unexpired user entries", () => {
+    const entries: AuditEntry[] = [
+      { ts: NOW - 1000, source: "user", docChecksum: "x",
+        diffs: [{ path: "/a", from: 1, to: 2 }, { path: "/b", from: 3, to: 4 }],
+        expiresAt: NOW + 100 },
+      { ts: NOW - 500, source: "user", docChecksum: "y",
+        diffs: [{ path: "/c", from: 5, to: 6 }],
+        expiresAt: NOW + 100 },
+    ];
+    expect(computeLockedKeys(entries, NOW, WINDOW)).toEqual(new Set(["/a", "/b", "/c"]));
+  });
+});
