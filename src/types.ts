@@ -108,7 +108,7 @@ export type FilterDecision =
 
 export interface EventLogEntry {
   event: DeviceEvent;
-  decision: "push" | "drop" | "stored" | "free_stored" | "blocked" | "error";
+  decision: "push" | "drop" | "stored" | "free_stored" | "blocked" | "error" | "notify";
   reason: string;
   timestamp: number;
 }
@@ -192,4 +192,5 @@ export interface DeviceConfig {
 export interface RuntimeState {
   tier: "free" | "premium" | null;
   smartMode: boolean;
+  tz?: string;
 }
