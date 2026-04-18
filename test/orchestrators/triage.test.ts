@@ -4,7 +4,7 @@ import type { ContextManager } from "../../src/context.js";
 import type { DeviceEvent } from "../../src/types.js";
 
 vi.mock("../../src/diagnostic-logger.js", () => ({
-  dlog: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  dlog: { info: vi.fn(), warn: vi.fn(), warning: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
 function makeEvent(overrides: Partial<DeviceEvent> = {}): DeviceEvent {
@@ -87,7 +87,7 @@ describe("triageEvent", () => {
   it("returns drop on non-OK HTTP response (429)", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({ ok: false, status: 429 })),
+      vi.fn(async () => ({ ok: false, status: 429, text: async () => "rate limited" })),
     );
 
     const result = await triageEvent(
