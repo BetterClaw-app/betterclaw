@@ -39,3 +39,21 @@ export class AuditLog {
     return out;
   }
 }
+
+/** Pure: compute the set of JSON-Pointer paths locked by unexpired user edits. */
+export function computeLockedKeys(
+  entries: AuditEntry[],
+  now: number,
+  _windowSec: number, // kept for signature symmetry; per-entry expiresAt is authoritative
+): Set<string> {
+  const locked = new Set<string>();
+  for (const e of entries) {
+    if (e.source !== "user") continue;
+    if (e.expiresAt === undefined) continue;
+    if (e.expiresAt <= now) continue;
+    for (const d of e.diffs) {
+      locked.add(d.path);
+    }
+  }
+  return locked;
+}
