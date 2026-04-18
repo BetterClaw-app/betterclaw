@@ -1,5 +1,4 @@
 import type { ContextManager } from "../context.js";
-import { loadTriageProfile } from "../learner.js";
 
 // Per-field staleness thresholds (seconds)
 // Location: updates every ~60s on movement, 10 min threshold
@@ -44,7 +43,7 @@ function deviceFieldOrPointer(
   return { ...data, dataAgeSeconds: ageSeconds };
 }
 
-export function createGetContextTool(ctx: ContextManager, stateDir?: string) {
+export function createGetContextTool(ctx: ContextManager, _stateDir?: string) {
   return {
     name: "get_context",
     label: "Get Device Context",
@@ -102,9 +101,6 @@ export function createGetContextTool(ctx: ContextManager, stateDir?: string) {
         lastSnapshotAt: ctx.getTimestamp("lastSnapshot"),
         lastAnalysisAt: patterns?.computedAt,
       };
-
-      const profile = stateDir ? await loadTriageProfile(stateDir) : null;
-      result.triageProfile = profile ? { summary: profile.summary, computedAt: profile.computedAt } : null;
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],

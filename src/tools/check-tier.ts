@@ -1,12 +1,7 @@
 import { Type } from "@sinclair/typebox";
 import type { ContextManager } from "../context.js";
 
-export interface CheckTierState {
-  calibrating: boolean;
-  calibrationEndsAt?: number;
-}
-
-export function createCheckTierTool(ctx: ContextManager, getState: () => CheckTierState) {
+export function createCheckTierTool(ctx: ContextManager) {
   return {
     name: "check_tier",
     label: "Check Device Tier",
@@ -14,7 +9,6 @@ export function createCheckTierTool(ctx: ContextManager, getState: () => CheckTi
       "Check the user's BetterClaw subscription tier and get instructions for how to access their device data. Call this first before accessing device data, or use your cached tier if still valid.",
     parameters: Type.Object({}),
     async execute(_id: string, _params: Record<string, unknown>) {
-      const state = getState();
       const runtime = ctx.getRuntimeState();
 
       if (runtime.tier === null) {
@@ -47,12 +41,6 @@ export function createCheckTierTool(ctx: ContextManager, getState: () => CheckTi
         cacheUntil,
         cacheInstruction,
       };
-
-      if (state.calibrating) {
-        result.calibrating = true;
-        result.calibrationEndsAt = state.calibrationEndsAt;
-        result.calibrationNote = "BetterClaw's smart filtering is still calibrating — it needs a few days to learn your preferences. Events are being tracked but filtering is in rules-only mode.";
-      }
 
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],

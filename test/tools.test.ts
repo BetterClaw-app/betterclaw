@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import { createCheckTierTool } from "../src/tools/check-tier.js";
 import { makeTmpDir } from "./helpers.js";
 import { createGetContextTool } from "../src/tools/get-context.js";
@@ -15,10 +13,8 @@ function makeCtx(tier: "free" | "premium" | null): ContextManager {
 }
 
 describe("check_tier tool", () => {
-  const defaultState = () => ({ calibrating: false });
-
   it("returns premium tier with node command instructions", async () => {
-    const tool = createCheckTierTool(makeCtx("premium"), defaultState);
+    const tool = createCheckTierTool(makeCtx("premium"));
     const result = await tool.execute("test-id", {});
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.tier).toBe("premium");
@@ -29,7 +25,7 @@ describe("check_tier tool", () => {
   });
 
   it("returns free tier with get_context instructions", async () => {
-    const tool = createCheckTierTool(makeCtx("free"), defaultState);
+    const tool = createCheckTierTool(makeCtx("free"));
     const result = await tool.execute("test-id", {});
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.tier).toBe("free");
@@ -38,23 +34,11 @@ describe("check_tier tool", () => {
   });
 
   it("returns unknown when tier is null (no ping received)", async () => {
-    const tool = createCheckTierTool(makeCtx(null), defaultState);
+    const tool = createCheckTierTool(makeCtx(null));
     const result = await tool.execute("test-id", {});
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.tier).toBe("unknown");
     expect(parsed.cacheUntil - Date.now() / 1000).toBeLessThan(120);
-  });
-
-  it("includes calibrating flag when system is calibrating", async () => {
-    const endsAt = Date.now() / 1000 + 86400 * 2;
-    const tool = createCheckTierTool(makeCtx("premium"), () => ({
-      calibrating: true,
-      calibrationEndsAt: endsAt,
-    }));
-    const result = await tool.execute("test-id", {});
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.calibrating).toBe(true);
-    expect(parsed.calibrationEndsAt).toBeGreaterThan(Date.now() / 1000);
   });
 
   it("does NOT include any device data", async () => {
@@ -63,7 +47,7 @@ describe("check_tier tool", () => {
       battery: { level: 0.5, state: "unplugged", isLowPowerMode: false },
       location: { latitude: 48.1, longitude: 11.5 },
     });
-    const tool = createCheckTierTool(ctx, defaultState);
+    const tool = createCheckTierTool(ctx);
     const result = await tool.execute("test-id", {});
     const text = result.content[0].text;
     expect(text).not.toContain("48.1");
@@ -106,29 +90,11 @@ describe("get_context tool", () => {
     expect(parsed.device.battery.level).toBe(0.5);
   });
 
-  it("includes triage profile summary when profile exists on disk", async () => {
-    const profile = {
-      eventPreferences: {},
-      lifeContext: "test",
-      interruptionTolerance: "normal",
-      timePreferences: {},
-      sensitivityThresholds: {},
-      locationRules: {},
-      summary: "Test profile",
-      computedAt: 1740000000,
-    };
-    await fs.writeFile(path.join(tmpDir, "triage-profile.json"), JSON.stringify(profile), "utf-8");
-    const tool = createGetContextTool(ctx, tmpDir);
-    const result = await tool.execute("test", {});
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.triageProfile.summary).toBe("Test profile");
-  });
-
-  it("returns null triage profile when not provided", async () => {
+  it("does not include triageProfile in output", async () => {
     const tool = createGetContextTool(ctx);
     const result = await tool.execute("test", {});
     const parsed = JSON.parse(result.content[0].text);
-    expect(parsed.triageProfile).toBeNull();
+    expect(parsed.triageProfile).toBeUndefined();
   });
 });
 

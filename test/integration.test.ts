@@ -13,7 +13,6 @@ vi.mock("../src/learner.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/learner.js")>();
   return {
     ...original,
-    loadTriageProfile: vi.fn().mockResolvedValue(null),
     runLearner: vi.fn().mockResolvedValue(undefined),
   };
 });
@@ -67,7 +66,6 @@ describe("resolveConfig", () => {
         "default.geofence": 300,
       },
       defaultCooldown: 1800,
-      calibrationDays: 3,
     });
   });
 
@@ -85,7 +83,6 @@ describe("resolveConfig", () => {
     const cfg = resolveConfig({});
     expect(cfg.triageModel).toBe("openai/gpt-4o-mini");
     expect(cfg.pushBudgetPerDay).toBe(10);
-    expect(cfg.calibrationDays).toBe(3);
   });
 
   it("rejects invalid types and falls back to defaults", () => {
@@ -95,14 +92,12 @@ describe("resolveConfig", () => {
       proactiveEnabled: "yes",
       analysisHour: 99,
       defaultCooldown: "fast",
-      calibrationDays: 0,
     });
     expect(cfg.pushBudgetPerDay).toBe(10); // string -> default
     expect(cfg.patternWindowDays).toBe(14); // negative -> default
     expect(cfg.proactiveEnabled).toBe(true); // string -> default
     expect(cfg.analysisHour).toBe(23); // clamped to max 23
     expect(cfg.defaultCooldown).toBe(1800); // string -> default
-    expect(cfg.calibrationDays).toBe(3); // 0 -> default
   });
 
   it("supports legacy llmModel field", () => {
@@ -233,8 +228,8 @@ describe("plugin registration", () => {
       expect(api._gatewayMethods.has(method)).toBe(true);
     }
 
-    // 2 tools (check_tier + get_context)
-    expect(api.registerTool).toHaveBeenCalledTimes(2);
+    // 3 tools (check_tier + get_context + edit_routing_rules)
+    expect(api.registerTool).toHaveBeenCalledTimes(3);
 
     // 1 command (bc)
     expect(api.registerCommand).toHaveBeenCalledTimes(1);
@@ -311,83 +306,6 @@ describe("plugin registration", () => {
       await invokeMethod(api, "betterclaw.ping", { tier: "bogus", smartMode: false });
       const ctx = await invokeMethod(api, "betterclaw.context");
       expect(ctx.result.tier).toBe("free");
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Calibration state machine
-  // -------------------------------------------------------------------------
-  describe("calibration state machine", () => {
-    it("starts calibration on first premium ping when no existing profile", async () => {
-      const { loadTriageProfile } = await import("../src/learner.js");
-      (loadTriageProfile as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-
-      const api = await registerPlugin();
-      await invokeMethod(api, "betterclaw.ping", { tier: "premium", smartMode: true });
-
-      // writeFile is fire-and-forget (.catch()) — wait for it
-      await new Promise((r) => setTimeout(r, 100));
-
-      const raw = await fs.readFile(path.join(tmpDir, "calibration.json"), "utf8");
-      const cal = JSON.parse(raw);
-      expect(cal.startedAt).toBeGreaterThan(0);
-      // startedAt should be roughly now (within 5s)
-      expect(Math.abs(cal.startedAt - Date.now() / 1000)).toBeLessThan(5);
-    });
-
-    it("skips calibration when existing triage profile has computedAt", async () => {
-      const { loadTriageProfile } = await import("../src/learner.js");
-      const fakeComputedAt = Date.now() / 1000 - 7200; // 2 hours ago
-      (loadTriageProfile as ReturnType<typeof vi.fn>).mockResolvedValue({ computedAt: fakeComputedAt, summary: "test", interruptionTolerance: "normal" });
-
-      const api = await registerPlugin();
-      await invokeMethod(api, "betterclaw.ping", { tier: "premium", smartMode: true });
-
-      // writeFile is fire-and-forget (.catch()) — wait for it
-      await new Promise((r) => setTimeout(r, 100));
-
-      const raw = await fs.readFile(path.join(tmpDir, "calibration.json"), "utf8");
-      const cal = JSON.parse(raw);
-      // startedAt should be backdated: computedAt - calibrationDays * 86400
-      expect(cal.startedAt).toBeCloseTo(fakeComputedAt - 3 * 86400, 0);
-    });
-
-    it("reports calibrating=false after calibration period ends", async () => {
-      const { loadTriageProfile } = await import("../src/learner.js");
-      (loadTriageProfile as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-
-      // Write a calibration.json with startedAt far in the past
-      const oldStartedAt = Date.now() / 1000 - 10 * 86400; // 10 days ago
-      await fs.writeFile(path.join(tmpDir, "calibration.json"), JSON.stringify({ startedAt: oldStartedAt }), "utf8");
-
-      const api = await registerPlugin();
-      // Ping to set tier
-      await invokeMethod(api, "betterclaw.ping", { tier: "premium", smartMode: true });
-      const ctx = await invokeMethod(api, "betterclaw.context");
-      expect(ctx.result.calibrating).toBe(false);
-    });
-
-    it("does not restart calibration on subsequent pings", async () => {
-      const { loadTriageProfile } = await import("../src/learner.js");
-      (loadTriageProfile as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-
-      const api = await registerPlugin();
-      await invokeMethod(api, "betterclaw.ping", { tier: "premium", smartMode: true });
-
-      // Wait for fire-and-forget writeFile
-      await new Promise((r) => setTimeout(r, 100));
-
-      // Read the initial startedAt
-      const raw1 = await fs.readFile(path.join(tmpDir, "calibration.json"), "utf8");
-      const cal1 = JSON.parse(raw1);
-
-      // Second ping — should not change startedAt
-      await invokeMethod(api, "betterclaw.ping", { tier: "premium", smartMode: true });
-      // Wait for async writeFile (if any)
-      await new Promise((r) => setTimeout(r, 100));
-      const raw2 = await fs.readFile(path.join(tmpDir, "calibration.json"), "utf8");
-      const cal2 = JSON.parse(raw2);
-      expect(cal2.startedAt).toBe(cal1.startedAt);
     });
   });
 
@@ -676,26 +594,8 @@ describe("plugin registration", () => {
   // betterclaw.learn
   // -------------------------------------------------------------------------
   describe("betterclaw.learn", () => {
-    it("rejects within 1 hour cooldown", async () => {
-      const { loadTriageProfile } = await import("../src/learner.js");
-      const recentComputedAt = Date.now() / 1000 - 1800; // 30 min ago
-      (loadTriageProfile as ReturnType<typeof vi.fn>).mockResolvedValue({
-        computedAt: recentComputedAt,
-        summary: "test",
-        interruptionTolerance: "normal",
-      });
-
-      const api = await registerPlugin();
-      const res = await invokeMethod(api, "betterclaw.learn");
-      expect(res.ok).toBe(true);
-      expect(res.result.ok).toBe(false);
-      expect(res.result.error).toBe("cooldown");
-      expect(res.result.nextAvailableAt).toBeCloseTo(recentComputedAt + 3600, 0);
-    });
-
     it("rejects concurrent learn requests", async () => {
-      const { loadTriageProfile, runLearner } = await import("../src/learner.js");
-      (loadTriageProfile as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+      const { runLearner } = await import("../src/learner.js");
 
       // Make runLearner hang
       let resolveHang: () => void;
@@ -810,14 +710,14 @@ describe("plugin registration", () => {
       expect(res.ok).toBe(true);
       expect(res.result).toHaveProperty("tier", "premium");
       expect(res.result).toHaveProperty("smartMode", true);
-      expect(res.result).toHaveProperty("calibrating");
       expect(res.result).toHaveProperty("activity");
       expect(res.result).toHaveProperty("trends");
       expect(res.result).toHaveProperty("decisions");
       expect(res.result).toHaveProperty("meta");
       expect(res.result).toHaveProperty("routines");
       expect(res.result).toHaveProperty("timestamps");
-      expect(res.result).toHaveProperty("triageProfile");
+      expect(res.result.calibrating).toBeUndefined();
+      expect(res.result.triageProfile).toBeUndefined();
     });
   });
 

@@ -24,7 +24,7 @@ export const BETTERCLAW_COMMANDS = [
   "system.notify",
 ].sort();
 
-export const BETTERCLAW_TOOLS = ["check_tier", "get_context"];
+export const BETTERCLAW_TOOLS = ["check_tier", "get_context", "edit_routing_rules"];
 
 export function mergeAllowCommands(existing: string[], toAdd: string[]): string[] {
   const set = new Set([...existing, ...toAdd]);
