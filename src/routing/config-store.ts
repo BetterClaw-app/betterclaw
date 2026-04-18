@@ -7,6 +7,7 @@ import type { AuditLog } from "./audit-log.js";
 import { computeLockedKeys } from "./audit-log.js";
 import { shippedDefaults } from "./shipped-defaults.js";
 import { applyPatch as applyPatchPure } from "./patch-applier.js";
+import { dlog } from "../diagnostic-logger.js";
 
 const RULES_FILE = "routing-rules.json";
 const LASTKNOWN_FILE = "routing-rules.lastknown.json";
@@ -46,9 +47,12 @@ export class RoutingConfigStore {
           docChecksum: checksum,
           diffs: [{ path: "", from: null, to: rules }],
         });
+        dlog.info("plugin.routing", "config.bootstrapped", "shipped defaults written on first run", { rules: rules.rules.length });
         return new RoutingConfigStore(stateDir, audit, rules, checksum);
       }
       // Corrupt JSON or other read error — in-memory defaults, preserve file
+      dlog.error("plugin.routing", "config.load.error", "routing-rules.json unreadable; using in-memory defaults",
+        { err: (err as Error).message });
       rules = shippedDefaults();
       return new RoutingConfigStore(stateDir, audit, rules, sha256(JSON.stringify(rules)));
     }
@@ -80,6 +84,8 @@ export class RoutingConfigStore {
       expiresAt: now + USER_LOCK_WINDOW_SEC,
     });
     await fs.writeFile(lastknownPath, rawCurrent);
+    dlog.info("plugin.routing", "config.manual.edit.detected", "manual edit detected on load",
+      { diffCount: diffs.length, expiresAt: now + USER_LOCK_WINDOW_SEC });
 
     return new RoutingConfigStore(stateDir, audit, rules, currentChecksum);
   }
@@ -170,6 +176,8 @@ export class RoutingConfigStore {
     this.checksum = onDiskChecksum;
     const lastknownPath = path.join(this.stateDir, LASTKNOWN_FILE);
     await fs.writeFile(lastknownPath, raw);
+    dlog.info("plugin.routing", "config.manual.edit.detected", "manual edit detected mid-patch",
+      { diffCount: diffs.length, expiresAt: now + USER_LOCK_WINDOW_SEC });
   }
 }
 

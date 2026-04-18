@@ -181,24 +181,32 @@ describe("pipeline integration", () => {
   });
 
   it("triage returns notify: non-explicit-match event notified after LLM says notify", async () => {
-    const deps = await makeDeps(tmpDir);
-    // Replace rules with a single non-explicit catch-all so triage is invoked.
-    await deps.routing.applyPatch(
-      [{ op: "replace", path: "/rules", value: [{ id: "fallback", match: "*", action: "drop", explicit: false }] }],
-      "default",
-      "test setup",
-    );
-    deps.context.setRuntimeState({ tier: "premium", smartMode: true });
-    vi.spyOn(deps.rules, "evaluate").mockReturnValue({ action: "ambiguous", reason: "no rule matched" });
-    (triageEvent as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ action: "notify", reason: "user cares about health" });
+    // Pin the clock outside the default 23:00-07:00 quiet-hours window so
+    // non-explicit notify isn't demoted to push.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-18T14:00:00Z"));
+    try {
+      const deps = await makeDeps(tmpDir);
+      // Replace rules with a single non-explicit catch-all so triage is invoked.
+      await deps.routing.applyPatch(
+        [{ op: "replace", path: "/rules", value: [{ id: "fallback", match: "*", action: "drop", explicit: false }] }],
+        "default",
+        "test setup",
+      );
+      deps.context.setRuntimeState({ tier: "premium", smartMode: true });
+      vi.spyOn(deps.rules, "evaluate").mockReturnValue({ action: "ambiguous", reason: "no rule matched" });
+      (triageEvent as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ action: "notify", reason: "user cares about health" });
 
-    await processEvent(deps, makeEvent());
+      await processEvent(deps, makeEvent());
 
-    const entries = await deps.events.readRecent(10);
-    expect(entries).toHaveLength(1);
-    expect(entries[0].decision).toBe("notify");
-    expect(entries[0].reason).toContain("user cares about health");
-    expect(mockApi.runtime.subagent.run).toHaveBeenCalledOnce();
+      const entries = await deps.events.readRecent(10);
+      expect(entries).toHaveLength(1);
+      expect(entries[0].decision).toBe("notify");
+      expect(entries[0].reason).toContain("user cares about health");
+      expect(mockApi.runtime.subagent.run).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("free tier: health event stored without push or triage", async () => {
