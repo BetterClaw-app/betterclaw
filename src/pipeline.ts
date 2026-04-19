@@ -193,7 +193,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   }
 
   const deliver = action === "notify";
-  const message = formatEnrichedMessage(event, deps.context);
+  const message = formatEnrichedMessage(event, deps.context, deliver);
 
   try {
     await deps.api.runtime.subagent.run({
@@ -225,7 +225,11 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
   await deps.reactions.save();
 }
 
-export function formatEnrichedMessage(event: DeviceEvent, context: ContextManager): string {
+export function formatEnrichedMessage(
+  event: DeviceEvent,
+  context: ContextManager,
+  deliver: boolean,
+): string {
   const state = context.get();
   const body = formatEventBody(event);
   const contextSummary = formatContextSummary(state);
@@ -233,7 +237,9 @@ export function formatEnrichedMessage(event: DeviceEvent, context: ContextManage
   const prefix =
     event.data._debugFired === 1.0
       ? "[DEBUG test event fired manually from BetterClaw iOS debug menu — not a real device event. You MUST respond to confirm the pipeline is working.]"
-      : "[BetterClaw device event — processed by context plugin]";
+      : deliver
+        ? "[BetterClaw notify — the user's routing rules flagged this event as user-facing. Send them a short, natural message about it (one sentence is fine).]"
+        : "[BetterClaw device event — processed by context plugin]";
 
   return `${prefix}\n\n${body}\n\nCurrent context: ${contextSummary}`;
 }
