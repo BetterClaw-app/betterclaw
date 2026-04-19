@@ -337,28 +337,41 @@ describe("formatEnrichedMessage", () => {
     });
   });
 
-  it("composes prefix, event body, and context", () => {
+  it("composes passive prefix, event body, and context when deliver=false (push path)", () => {
     const event: DeviceEvent = {
       subscriptionId: "default.battery-low",
       source: "device.battery",
       data: { level: 0.15 },
       firedAt: 1740000000,
     };
-    const result = formatEnrichedMessage(event, ctx);
+    const result = formatEnrichedMessage(event, ctx, false);
     expect(result).toContain("[BetterClaw device event");
     expect(result).toContain("15%");
     expect(result).toContain("Current context:");
     expect(result).toContain("Battery 50%");
   });
 
-  it("uses debug prefix for events with _debugFired", () => {
+  it("uses directive prefix when deliver=true (notify path)", () => {
+    const event: DeviceEvent = {
+      subscriptionId: "default.battery-low",
+      source: "device.battery",
+      data: { level: 0.15 },
+      firedAt: 1740000000,
+    };
+    const result = formatEnrichedMessage(event, ctx, true);
+    expect(result).toContain("[BetterClaw notify");
+    expect(result).toContain("Send them a short");
+    expect(result).not.toContain("[BetterClaw device event");
+  });
+
+  it("uses debug prefix for events with _debugFired (overrides deliver)", () => {
     const event: DeviceEvent = {
       subscriptionId: "default.battery-low",
       source: "device.battery",
       data: { level: 0.15, _debugFired: 1.0 },
       firedAt: 1740000000,
     };
-    const result = formatEnrichedMessage(event, ctx);
+    const result = formatEnrichedMessage(event, ctx, true);
     expect(result).toContain("[DEBUG test event fired manually");
     expect(result).toContain("MUST respond");
   });
