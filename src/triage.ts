@@ -26,18 +26,33 @@ export function buildTriagePrompt(
   const activity = ctx.activity;
 
   const rulesSection = matchedNonExplicitRules.length > 0
-    ? `## Matching Non-Explicit Rules (user/learner preferences — strong priors)\n${matchedNonExplicitRules.map(r => `- id=${r.id} action=${r.action} ${r.cooldownMin ? `cooldown=${r.cooldownMin}min` : ""}`).join("\n")}`
+    ? `## Matching Non-Explicit Rules (user's defaults for this kind of event)
+${matchedNonExplicitRules.map(r => `- ${JSON.stringify(r)}`).join("\n")}
+
+Field semantics:
+- action="notify" → the user wants a Telegram message for this kind of event.
+- action="push" → the user wants it injected silently into session context (agent sees it, user doesn't).
+- action="drop" → the user wants this ignored entirely.
+- respectQuietHours=true (or omitted) → during quiet hours, demote notify→push automatically.
+- respectQuietHours=false → the user EXPLICITLY decided this rule should notify during quiet hours too. Do NOT second-guess this.`
     : "## Matching Non-Explicit Rules\nNone — use general judgement.";
 
   const userEditsSection = recentUserEdits.length > 0
-    ? `## Recent User-Driven Edits (last 3 days — strong intent signals)\n${recentUserEdits.map(e => e.diffs.map(d => `- ${d.path}: ${JSON.stringify(d.from)} → ${JSON.stringify(d.to)}`).join("\n")).join("\n")}`
+    ? `## Recent User-Driven Edits (last 3 days — direct statements of intent)
+These are edits the USER made themselves. Treat them as the ground truth. The "from → to" direction tells you what they changed INTO — that's what they want now.
+${recentUserEdits.map(e => e.diffs.map(d => `- ${d.path}: ${JSON.stringify(d.from)} → ${JSON.stringify(d.to)}`).join("\n")).join("\n")}`
     : "## Recent User-Driven Edits\nNone.";
 
   const lockedSection = lockedKeys.size > 0
-    ? `## Locked Keys (do not second-guess)\n${Array.from(lockedKeys).join(", ")}`
+    ? `## User-Locked Keys (authoritative — user set these deliberately)
+${Array.from(lockedKeys).join(", ")}
+
+These paths were touched by the user within the last 14 days. Their current values ARE the user's preference. Don't interpret "locked" as "user wants quiet" — it means "user has an opinion here and we respect it." Look at the actual field value in the rule above to know which direction they chose.`
     : "";
 
-  const quietSection = `## Quiet Hours\n${quietHours.start}–${quietHours.end} (${quietHours.tz}). Current local time: ${currentLocalTime}.`;
+  const quietSection = `## Quiet Hours (default, not a hard rule)
+${quietHours.start}–${quietHours.end} (${quietHours.tz}). Current local time: ${currentLocalTime}.
+Quiet hours are a soft default. If a rule has \`respectQuietHours: false\`, the user already decided this event type OVERRIDES quiet hours — notify anyway.`;
 
   const contextSection = [
     `## Current Device Context`,
