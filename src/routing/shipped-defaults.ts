@@ -8,14 +8,6 @@ export function shippedDefaults(): RoutingRules {
     version: 1,
     quietHours: { start: "23:00", end: "07:00", tz: "auto" },
     rules: [
-      { id: "battery-critical",
-        match: { source: "device.battery", level: "< 0.1" },
-        action: "notify", explicit: true, respectQuietHours: false },
-
-      { id: "battery-low",
-        match: { source: "device.battery", level: "< 0.2" },
-        action: "notify", explicit: false },
-
       { id: "geofence-enter-default",
         match: { source: "geofence.triggered", type: "enter" },
         action: "notify", explicit: false, cooldownMin: 60 },

@@ -9,8 +9,6 @@ describe("RulesEngine", () => {
 
   beforeEach(() => {
     rules = new RulesEngine(10, {
-      "default.battery-low": 3600,
-      "default.battery-critical": 1800,
       "default.daily-health": 82800,
       "default.geofence": 300,
     });
@@ -19,25 +17,14 @@ describe("RulesEngine", () => {
 
   it("always pushes debug events", () => {
     const event: DeviceEvent = {
-      subscriptionId: "default.battery-low",
-      source: "device.battery",
-      data: { level: 0.15, _debugFired: 1.0 },
+      subscriptionId: "default.daily-health",
+      source: "health.daily",
+      data: { stepsToday: 8000, _debugFired: 1.0 },
       firedAt: 1740000000,
     };
     const decision = rules.evaluate(event, emptyContext);
     expect(decision.action).toBe("push");
     expect(decision.reason).toContain("debug");
-  });
-
-  it("always pushes critical battery", () => {
-    const event: DeviceEvent = {
-      subscriptionId: "default.battery-critical",
-      source: "device.battery",
-      data: { level: 0.08 },
-      firedAt: 1740000000,
-    };
-    const decision = rules.evaluate(event, emptyContext);
-    expect(decision.action).toBe("push");
   });
 
   it("always pushes geofence events", () => {
@@ -53,77 +40,47 @@ describe("RulesEngine", () => {
 
   it("deduplicates within cooldown window", () => {
     const event: DeviceEvent = {
-      subscriptionId: "default.battery-low",
-      source: "device.battery",
-      data: { level: 0.15 },
+      subscriptionId: "default.daily-health",
+      source: "health.daily",
+      data: { stepsToday: 5000 },
       firedAt: 1740000000,
     };
-    rules.recordFired("default.battery-low", 1740000000);
+    rules.recordFired("default.daily-health", 1740000000);
 
-    const event2 = { ...event, firedAt: 1740000000 + 1800 }; // 30 min later (< 1hr cooldown)
+    const event2 = { ...event, firedAt: 1740000000 + 3600 }; // 1hr later (< 82800s cooldown)
     const decision = rules.evaluate(event2, emptyContext);
     expect(decision.action).toBe("drop");
     expect(decision.reason).toContain("dedup");
   });
 
   it("allows after cooldown expires", () => {
-    rules.recordFired("default.battery-low", 1740000000);
+    rules.recordFired("default.daily-health", 1740000000);
     const event: DeviceEvent = {
-      subscriptionId: "default.battery-low",
-      source: "device.battery",
-      data: { level: 0.12 },
-      firedAt: 1740000000 + 3700, // > 1hr cooldown
+      subscriptionId: "default.daily-health",
+      source: "health.daily",
+      data: { stepsToday: 6000 },
+      firedAt: 1740000000 + 82900, // > 23hr cooldown
     };
     const decision = rules.evaluate(event, emptyContext);
-    expect(decision.action).toBe("push");
+    // daily-health falls through to ambiguous (no always-push branch); proves cooldown released
+    expect(decision.action).toBe("ambiguous");
   });
 
-  it("pushes battery-low when level changed since last push", () => {
-    const ctx = ContextManager.empty();
-    // Simulate: context already updated to 0.18 (pipeline updates context first)
-    ctx.device.battery = { level: 0.18, state: "unplugged", isLowPowerMode: false, updatedAt: 1740000100 };
-
-    // First battery-low push at level 0.25 — no previous push, should push
-    const first = rules.evaluate(
-      { subscriptionId: "default.battery-low", source: "device.battery", data: { level: 0.25 }, firedAt: 1740000100 },
-      ctx,
-    );
-    expect(first.action).toBe("push");
-
-    // Record the push with the battery level
-    rules.recordFired("default.battery-low", 1740000100, { level: 0.25 });
-
-    // Second event with same level — should drop (dedup)
-    const second = rules.evaluate(
-      { subscriptionId: "default.battery-low", source: "device.battery", data: { level: 0.25 }, firedAt: 1740004000 },
-      ctx,
-    );
-    expect(second.action).toBe("drop");
-    expect(second.reason).toContain("unchanged");
-
-    // Third event with different level — should push
-    const third = rules.evaluate(
-      { subscriptionId: "default.battery-low", source: "device.battery", data: { level: 0.18 }, firedAt: 1740008000 },
-      ctx,
-    );
-    expect(third.action).toBe("push");
-  });
-
-  it("restoreCooldowns restores battery level and deduplicates", () => {
+  it("restoreCooldowns restores timestamps and deduplicates", () => {
     const ctx = ContextManager.empty();
 
-    // Simulate restoring from event log: a previous push at level 0.15
+    // Simulate restoring from event log: a previous push
     rules.restoreCooldowns([
-      { subscriptionId: "default.battery-low", firedAt: 1740000000, data: { level: 0.15 } },
+      { subscriptionId: "default.daily-health", firedAt: 1740000000 },
     ]);
 
-    // Event with same level — should drop (dedup against restored level)
+    // Event within cooldown — should drop
     const result = rules.evaluate(
-      { subscriptionId: "default.battery-low", source: "device.battery", data: { level: 0.15 }, firedAt: 1740010000 },
+      { subscriptionId: "default.daily-health", source: "health.daily", data: { stepsToday: 5000 }, firedAt: 1740010000 },
       ctx,
     );
     expect(result.action).toBe("drop");
-    expect(result.reason).toContain("unchanged");
+    expect(result.reason).toContain("dedup");
   });
 
   it("drops when push budget is exhausted (configurable)", () => {

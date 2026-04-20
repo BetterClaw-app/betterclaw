@@ -9,9 +9,9 @@ vi.mock("../../src/diagnostic-logger.js", () => ({
 
 function makeEvent(overrides: Partial<DeviceEvent> = {}): DeviceEvent {
   return {
-    subscriptionId: "default.battery-critical",
-    source: "device.battery",
-    data: { level: 0.05 },
+    subscriptionId: "default.daily-health",
+    source: "health.daily",
+    data: { stepsToday: 8000 },
     firedAt: Date.now() / 1000,
     ...overrides,
   };
@@ -20,7 +20,7 @@ function makeEvent(overrides: Partial<DeviceEvent> = {}): DeviceEvent {
 function makeContext(): ContextManager {
   return {
     get: () => ({
-      device: { battery: { level: 0.85, state: "unplugged" } },
+      device: { location: { label: "home" } },
       activity: { currentZone: "home" },
     }),
     readPatterns: vi.fn(async () => null),
@@ -33,7 +33,7 @@ const currentLocalTime = "14:00";
 
 describe("triageEvent", () => {
   it("returns push action on successful API call", async () => {
-    const body = { action: "push", reason: "critical battery", priority: "high" };
+    const body = { action: "push", reason: "health event is relevant", priority: "high" };
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => ({
@@ -50,7 +50,7 @@ describe("triageEvent", () => {
     );
 
     expect(result.action).toBe("push");
-    expect(result.reason).toBe("critical battery");
+    expect(result.reason).toBe("health event is relevant");
     expect(result.priority).toBe("high");
   });
 

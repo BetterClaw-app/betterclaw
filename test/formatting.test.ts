@@ -52,41 +52,6 @@ describe("formatDuration", () => {
 // ---------------------------------------------------------------------------
 
 describe("formatEventBody", () => {
-  it("formats battery-low with percentage", () => {
-    const event: DeviceEvent = {
-      subscriptionId: "default.battery-low",
-      source: "device.battery",
-      data: { level: 0.15 },
-      firedAt: 1740000000,
-    };
-    const result = formatEventBody(event);
-    expect(result).toContain("15%");
-    expect(result).toContain("Battery");
-  });
-
-  it("formats battery-critical with percentage", () => {
-    const event: DeviceEvent = {
-      subscriptionId: "default.battery-critical",
-      source: "device.battery",
-      data: { level: 0.05 },
-      firedAt: 1740000000,
-    };
-    const result = formatEventBody(event);
-    expect(result).toContain("5%");
-    expect(result).toContain("threshold: <10%");
-  });
-
-  it("formats battery-low with missing level as '?%'", () => {
-    const event: DeviceEvent = {
-      subscriptionId: "default.battery-low",
-      source: "device.battery",
-      data: {},
-      firedAt: 1740000000,
-    };
-    const result = formatEventBody(event);
-    expect(result).toContain("?%");
-  });
-
   it("formats daily-health with steps", () => {
     const event: DeviceEvent = {
       subscriptionId: "default.daily-health",
@@ -257,7 +222,7 @@ describe("formatContextSummary", () => {
     expect(result).toContain("8,000 steps today");
   });
 
-  it("includes battery when present", () => {
+  it("does not include battery even when present in state (battery removed from output)", () => {
     const state: DeviceContext = {
       ...ContextManager.empty(),
       device: {
@@ -271,8 +236,10 @@ describe("formatContextSummary", () => {
       },
     };
     const result = formatContextSummary(state);
-    expect(result).toContain("Battery 65%");
-    expect(result).toContain("unplugged");
+    expect(result).not.toContain("Battery");
+    expect(result).not.toContain("65%");
+    // No other context data — falls back to default
+    expect(result).toBe("No context available.");
   });
 
   it("returns 'No context available.' when all empty", () => {
@@ -303,7 +270,7 @@ describe("formatContextSummary", () => {
     expect(result).toBe("No context available.");
   });
 
-  it("includes Battery 0% (battery object is truthy even at 0%)", () => {
+  it("does not include battery at 0% (battery removed from output)", () => {
     const state: DeviceContext = {
       ...ContextManager.empty(),
       device: {
@@ -317,7 +284,8 @@ describe("formatContextSummary", () => {
       },
     };
     const result = formatContextSummary(state);
-    expect(result).toContain("Battery 0%");
+    expect(result).not.toContain("Battery");
+    expect(result).toBe("No context available.");
   });
 });
 
@@ -332,30 +300,26 @@ describe("formatEnrichedMessage", () => {
   beforeEach(async () => {
     tmpDir = await makeTmpDir();
     ctx = new ContextManager(tmpDir);
-    ctx.applySnapshot({
-      battery: { level: 0.5, state: "unplugged", isLowPowerMode: false },
-    });
   });
 
   it("composes passive prefix, event body, and context when deliver=false (push path)", () => {
     const event: DeviceEvent = {
-      subscriptionId: "default.battery-low",
-      source: "device.battery",
-      data: { level: 0.15 },
+      subscriptionId: "default.daily-health",
+      source: "health.daily",
+      data: { stepsToday: 8000 },
       firedAt: 1740000000,
     };
     const result = formatEnrichedMessage(event, ctx, false);
     expect(result).toContain("[BetterClaw device event");
-    expect(result).toContain("15%");
+    expect(result).toContain("8,000");
     expect(result).toContain("Current context:");
-    expect(result).toContain("Battery 50%");
   });
 
   it("uses directive prefix when deliver=true (notify path)", () => {
     const event: DeviceEvent = {
-      subscriptionId: "default.battery-low",
-      source: "device.battery",
-      data: { level: 0.15 },
+      subscriptionId: "default.daily-health",
+      source: "health.daily",
+      data: { stepsToday: 8000 },
       firedAt: 1740000000,
     };
     const result = formatEnrichedMessage(event, ctx, true);
@@ -366,9 +330,9 @@ describe("formatEnrichedMessage", () => {
 
   it("uses debug prefix for events with _debugFired (overrides deliver)", () => {
     const event: DeviceEvent = {
-      subscriptionId: "default.battery-low",
-      source: "device.battery",
-      data: { level: 0.15, _debugFired: 1.0 },
+      subscriptionId: "default.daily-health",
+      source: "health.daily",
+      data: { stepsToday: 8000, _debugFired: 1.0 },
       firedAt: 1740000000,
     };
     const result = formatEnrichedMessage(event, ctx, true);

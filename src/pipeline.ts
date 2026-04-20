@@ -203,7 +203,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
       idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
     });
     // Record push — feeds RulesEngine cooldowns + push-budget + reactions.
-    rules.recordFired(event.subscriptionId, event.firedAt, event.data);
+    rules.recordFired(event.subscriptionId, event.firedAt);
     context.recordPush();
     deps.reactions.recordPush({
       subscriptionId: event.subscriptionId,
@@ -249,14 +249,6 @@ export function formatEventBody(event: DeviceEvent): string {
   const id = event.subscriptionId;
 
   switch (id) {
-    case "default.battery-low": {
-      const level = data.level != null ? Math.round(data.level * 100) : "?";
-      return `🔋 Battery at ${level}% (threshold: <20%)`;
-    }
-    case "default.battery-critical": {
-      const level = data.level != null ? Math.round(data.level * 100) : "?";
-      return `🪫 Battery at ${level}% (threshold: <10%)`;
-    }
     case "default.daily-health": {
       const parts: string[] = [];
       if (data.stepsToday != null) parts.push(`Steps: ${Math.round(data.stepsToday).toLocaleString()}`);
@@ -307,10 +299,6 @@ export function formatContextSummary(state: DeviceContext): string {
 
   if (state.device.health?.stepsToday) {
     parts.push(`${Math.round(state.device.health.stepsToday).toLocaleString()} steps today`);
-  }
-
-  if (state.device.battery) {
-    parts.push(`Battery ${Math.round(state.device.battery.level * 100)}% (${state.device.battery.state})`);
   }
 
   return parts.length ? parts.join(". ") + "." : "No context available.";

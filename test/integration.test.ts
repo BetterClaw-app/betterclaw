@@ -60,8 +60,6 @@ describe("resolveConfig", () => {
       proactiveEnabled: true,
       analysisHour: 5,
       deduplicationCooldowns: {
-        "default.battery-low": 3600,
-        "default.battery-critical": 1800,
         "default.daily-health": 82800,
         "default.geofence": 300,
       },
@@ -117,13 +115,11 @@ describe("resolveConfig", () => {
     const cfg = resolveConfig({
       deduplicationCooldowns: {
         "custom.event": 600,
-        "default.battery-low": 7200, // override default
+        "default.daily-health": 43200, // override default
       },
     });
     expect(cfg.deduplicationCooldowns).toEqual({
-      "default.battery-low": 7200, // overridden
-      "default.battery-critical": 1800, // preserved
-      "default.daily-health": 82800, // preserved
+      "default.daily-health": 43200, // overridden
       "default.geofence": 300, // preserved
       "custom.event": 600, // added
     });
@@ -432,25 +428,6 @@ describe("plugin registration", () => {
   // betterclaw.snapshot
   // -------------------------------------------------------------------------
   describe("betterclaw.snapshot", () => {
-    it("applies battery snapshot", async () => {
-      const api = await registerPlugin();
-      const res = await invokeMethod(api, "betterclaw.snapshot", {
-        battery: { level: 0.85, state: "charging", isLowPowerMode: false },
-      });
-      expect(res.ok).toBe(true);
-      expect(res.result.applied).toBe(true);
-
-      const ctx = await invokeMethod(api, "betterclaw.context");
-      // Context should now be populated — but we get it from the context RPC
-      // The snapshot handler calls ctxManager.applySnapshot + save
-      // We can't directly inspect device state from context RPC (it doesn't expose device),
-      // but the bc command does. Let's use the command handler instead.
-      const bcCmd = api._commands.find((c) => c.name === "bc");
-      const result = bcCmd!.handler() as { text: string };
-      expect(result.text).toContain("Battery: 85%");
-      expect(result.text).toContain("charging");
-    });
-
     it("applies location snapshot", async () => {
       const api = await registerPlugin();
       await invokeMethod(api, "betterclaw.snapshot", {
@@ -490,7 +467,8 @@ describe("plugin registration", () => {
       });
       const bcCmd = api._commands.find((c) => c.name === "bc");
       const result = bcCmd!.handler() as { text: string };
-      expect(result.text).toContain("Battery: 50%");
+      // Battery is no longer rendered by /bc output, but health still is
+      expect(result.text).not.toContain("Battery");
       expect(result.text).toContain("3,000");
     });
 
@@ -725,7 +703,7 @@ describe("plugin registration", () => {
   // bc command
   // -------------------------------------------------------------------------
   describe("bc command", () => {
-    it("formats battery, location, zone, health, events into text", async () => {
+    it("formats location, zone, health, events into text (battery removed from output)", async () => {
       const api = await registerPlugin();
       // Set up full context via snapshots
       await invokeMethod(api, "betterclaw.snapshot", {
@@ -737,7 +715,7 @@ describe("plugin registration", () => {
 
       const bcCmd = api._commands.find((c) => c.name === "bc");
       const result = bcCmd!.handler() as { text: string };
-      expect(result.text).toContain("Battery: 72% (unplugged)");
+      expect(result.text).not.toContain("Battery");
       expect(result.text).toContain("Location: Office");
       expect(result.text).toContain("Zone: Office");
       expect(result.text).toContain("12,500");

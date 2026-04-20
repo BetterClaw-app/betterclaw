@@ -2,11 +2,9 @@ import type { ContextManager } from "../context.js";
 
 // Per-field staleness thresholds (seconds)
 // Location: updates every ~60s on movement, 10 min threshold
-// Battery: updates every 10 min, 15 min threshold
 // Health: updates every 30 min, 60 min threshold
 const STALE_THRESHOLDS: Record<string, number> = {
   location: 600,
-  battery: 900,
   health: 3600,
 };
 
@@ -48,7 +46,7 @@ export function createGetContextTool(ctx: ContextManager, _stateDir?: string) {
     name: "get_context",
     label: "Get Device Context",
     description:
-      "Get BetterClaw context — patterns, trends, activity zone, and event history. On premium, stale device readings are hidden — use node commands (location.get, device.battery, health.*) for current data. On free, this includes the full device snapshot.",
+      "Get BetterClaw context — patterns, trends, activity zone, and event history. On premium, stale device readings are hidden — use node commands (location.get, health.*) for current data. On free, this includes the full device snapshot.",
     parameters: {},
     async execute(_id: string, _params: Record<string, unknown>) {
       const state = ctx.get();
@@ -62,20 +60,13 @@ export function createGetContextTool(ctx: ContextManager, _stateDir?: string) {
         tierHint: {
           tier: runtime.tier,
           note: isPremium
-            ? "Node commands available for fresh readings (location.get, device.battery, health.*). Stale device data is hidden — call the node command instead."
+            ? "Node commands available for fresh readings (location.get, health.*). Stale device data is hidden — call the node command instead."
             : "This is the only data source on free tier — check dataAgeSeconds for freshness",
         },
         smartMode: runtime.smartMode,
       };
 
       result.device = {
-        battery: deviceFieldOrPointer(
-          state.device.battery as unknown as Record<string, unknown>,
-          dataAge.battery,
-          "device.battery",
-          isPremium,
-          "battery",
-        ),
         location: deviceFieldOrPointer(
           state.device.location as unknown as Record<string, unknown>,
           dataAge.location,
