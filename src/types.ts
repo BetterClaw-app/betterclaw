@@ -42,13 +42,6 @@ export interface DeviceEvent {
 
 // -- Context state (context.json) --
 
-export interface BatteryState {
-  level: number;
-  state: string;
-  isLowPowerMode: boolean;
-  updatedAt: number;
-}
-
 export interface LocationState {
   latitude: number;
   longitude: number;
@@ -89,7 +82,6 @@ export interface ContextMeta {
 
 export interface DeviceContext {
   device: {
-    battery: BatteryState | null;
     location: LocationState | null;
     health: HealthState | null;
   };
@@ -134,11 +126,6 @@ export interface Patterns {
     sleepTrend: "improving" | "stable" | "declining" | null;
     restingHrAvg7d: number | null;
     restingHrTrend: "improving" | "stable" | "declining" | null;
-  };
-  batteryPatterns: {
-    avgDrainPerHour: number | null;
-    typicalChargeTime: string | null;
-    lowBatteryFrequency: number | null;
   };
   eventStats: {
     eventsPerDay7d: number;

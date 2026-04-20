@@ -59,7 +59,6 @@ export class PatternEngine {
     const patterns: Patterns = {
       locationRoutines: computeLocationRoutines(entries),
       healthTrends: computeHealthTrends(entries),
-      batteryPatterns: computeBatteryPatterns(entries),
       eventStats: computeEventStats(entries),
       computedAt: Date.now() / 1000,
     };
@@ -89,11 +88,6 @@ export function emptyPatterns(): Patterns {
       sleepTrend: null,
       restingHrAvg7d: null,
       restingHrTrend: null,
-    },
-    batteryPatterns: {
-      avgDrainPerHour: null,
-      typicalChargeTime: null,
-      lowBatteryFrequency: null,
     },
     eventStats: {
       eventsPerDay7d: 0,
@@ -180,25 +174,6 @@ function computeHealthTrends(entries: EventLogEntry[]) {
     sleepTrend: computeTrend(sleepAvg7d, sleepAvg30d),
     restingHrAvg7d: rhrAvg7d,
     restingHrTrend: computeInverseTrend(rhrAvg7d, rhrAvg30d),
-  };
-}
-
-function computeBatteryPatterns(entries: EventLogEntry[]) {
-  const lowBatteryEvents = entries.filter(
-    (e) =>
-      e.event.subscriptionId === "default.battery-low" ||
-      e.event.subscriptionId === "default.battery-critical",
-  );
-
-  const daySpan =
-    entries.length > 0
-      ? Math.max(1, (entries[entries.length - 1].timestamp - entries[0].timestamp) / 86400)
-      : 1;
-
-  return {
-    avgDrainPerHour: null,
-    typicalChargeTime: null,
-    lowBatteryFrequency: lowBatteryEvents.length / daySpan,
   };
 }
 

@@ -14,12 +14,11 @@ describe("ContextManager", () => {
 
   it("starts with empty context", () => {
     const state = ctx.get();
-    expect(state.device.battery).toBeNull();
     expect(state.device.location).toBeNull();
     expect(state.meta.eventsToday).toBe(0);
   });
 
-  it("updates battery from event", () => {
+  it("silently ignores device.battery events (no crash, no state update)", () => {
     const event: DeviceEvent = {
       subscriptionId: "default.battery-low",
       source: "device.battery",
@@ -28,7 +27,8 @@ describe("ContextManager", () => {
     };
     ctx.updateFromEvent(event);
     const state = ctx.get();
-    expect(state.device.battery?.level).toBe(0.15);
+    expect((state.device as Record<string, unknown>).battery).toBeUndefined();
+    // meta counter still increments (event received, just not stored)
     expect(state.meta.eventsToday).toBe(1);
   });
 
@@ -59,9 +59,9 @@ describe("ContextManager", () => {
 
   it("persists and loads context", async () => {
     const event: DeviceEvent = {
-      subscriptionId: "default.battery-low",
-      source: "device.battery",
-      data: { level: 0.15, updatedAt: 1740000000 },
+      subscriptionId: "default.daily-health",
+      source: "health.summary",
+      data: { stepsToday: 7500, updatedAt: 1740000000 },
       firedAt: 1740000000,
     };
     ctx.updateFromEvent(event);
@@ -69,7 +69,7 @@ describe("ContextManager", () => {
 
     const ctx2 = new ContextManager(tmpDir);
     await ctx2.load();
-    expect(ctx2.get().device.battery?.level).toBe(0.15);
+    expect(ctx2.get().device.health?.stepsToday).toBe(7500);
   });
 
   it("updates zone name from geofence enter with metadata", () => {
@@ -141,7 +141,7 @@ describe("ContextManager", () => {
   });
 
   describe("updatedAt timestamps", () => {
-    it("tracks battery updatedAt", () => {
+    it("does not track battery timestamp (battery events are ignored)", () => {
       const event: DeviceEvent = {
         subscriptionId: "default.battery-low",
         source: "device.battery",
@@ -149,7 +149,7 @@ describe("ContextManager", () => {
         firedAt: 1740000100,
       };
       ctx.updateFromEvent(event);
-      expect(ctx.getTimestamp("battery")).toBe(1740000100);
+      expect(ctx.getTimestamp("battery")).toBeUndefined();
     });
 
     it("tracks location updatedAt from geofence", () => {
@@ -177,7 +177,7 @@ describe("ContextManager", () => {
     });
 
     it("tracks snapshot updatedAt", () => {
-      ctx.applySnapshot({ battery: { level: 0.8, state: "charging", isLowPowerMode: false } }, 1740000400);
+      ctx.applySnapshot({ location: { latitude: 48.1, longitude: 11.5 } }, 1740000400);
       expect(ctx.getTimestamp("lastSnapshot")).toBe(1740000400);
     });
   });
@@ -284,15 +284,14 @@ describe("ContextManager.applySnapshot", () => {
     ctx = new ContextManager(tmpDir);
   });
 
-  it("applies battery snapshot", () => {
-    ctx.applySnapshot({ battery: { level: 0.85, state: "charging", isLowPowerMode: false } });
+  it("silently ignores battery field in snapshot (Phase 1 in-flight events)", () => {
+    // iOS still sends battery in snapshots during Phase 1; plugin must not crash
+    ctx.applySnapshot({ battery: { level: 0.85, state: "charging", isLowPowerMode: false } } as Parameters<typeof ctx.applySnapshot>[0]);
 
     const state = ctx.get();
-    expect(state.device.battery).not.toBeNull();
-    expect(state.device.battery!.level).toBe(0.85);
-    expect(state.device.battery!.state).toBe("charging");
-    expect(state.device.battery!.isLowPowerMode).toBe(false);
-    expect(state.device.battery!.updatedAt).toBeGreaterThan(0);
+    expect((state.device as Record<string, unknown>).battery).toBeUndefined();
+    // Other fields unaffected
+    expect(state.device.location).toBeNull();
   });
 
   it("applies geofence enter and sets zone", () => {
@@ -332,13 +331,12 @@ describe("ContextManager.applySnapshot", () => {
     });
   });
 
-  it("applies partial snapshot (battery only, no health/location/geofence)", () => {
-    ctx.applySnapshot({ battery: { level: 0.42, state: "unplugged", isLowPowerMode: true } });
+  it("applies partial snapshot (health only, no location/geofence)", () => {
+    ctx.applySnapshot({ health: { stepsToday: 4200 } });
 
     const state = ctx.get();
-    expect(state.device.battery!.level).toBe(0.42);
+    expect(state.device.health?.stepsToday).toBe(4200);
     expect(state.device.location).toBeNull();
-    expect(state.device.health).toBeNull();
     expect(state.activity.currentZone).toBeNull();
   });
 
@@ -379,21 +377,6 @@ describe("ContextManager.getDataAge", () => {
 
   it("returns null for all fields when nothing set", () => {
     const age = ctx.getDataAge();
-    expect(age.battery).toBeNull();
-    expect(age.location).toBeNull();
-    expect(age.health).toBeNull();
-  });
-
-  it("near-zero age for freshly set battery", () => {
-    ctx.updateFromEvent({
-      subscriptionId: "test",
-      source: "device.battery",
-      data: { level: 0.8 },
-      firedAt: Date.now() / 1000,
-    });
-    const age = ctx.getDataAge();
-    expect(age.battery).not.toBeNull();
-    expect(age.battery!).toBeLessThan(5);
     expect(age.location).toBeNull();
     expect(age.health).toBeNull();
   });
@@ -409,7 +392,7 @@ describe("ContextManager.getDataAge", () => {
     const age = ctx.getDataAge();
     expect(age.location).not.toBeNull();
     expect(age.location!).toBeLessThan(5);
-    expect(age.battery).toBeNull();
+    expect(age.health).toBeNull();
   });
 
   it("near-zero age for freshly set health", () => {
@@ -422,22 +405,22 @@ describe("ContextManager.getDataAge", () => {
     const age = ctx.getDataAge();
     expect(age.health).not.toBeNull();
     expect(age.health!).toBeLessThan(5);
-    expect(age.battery).toBeNull();
+    expect(age.location).toBeNull();
   });
 
   it("correct age based on timestamp parameter (10 min ago)", () => {
     const tenMinAgo = Date.now() / 1000 - 600;
     ctx.updateFromEvent({
-      subscriptionId: "test",
-      source: "device.battery",
-      data: { level: 0.5 },
+      subscriptionId: "health",
+      source: "health.summary",
+      data: { stepsToday: 5000 },
       firedAt: tenMinAgo,
     });
     const age = ctx.getDataAge();
-    expect(age.battery).not.toBeNull();
+    expect(age.health).not.toBeNull();
     // Should be approximately 600s (allow some tolerance for test execution time)
-    expect(age.battery!).toBeGreaterThanOrEqual(599);
-    expect(age.battery!).toBeLessThan(610);
+    expect(age.health!).toBeGreaterThanOrEqual(599);
+    expect(age.health!).toBeLessThan(610);
   });
 });
 
@@ -510,5 +493,68 @@ describe("ContextManager.updateFromEvent daily counter reset", () => {
       firedAt: 1740000200, // 200 seconds later, same day
     });
     expect(ctx.get().meta.eventsToday).toBe(3);
+  });
+});
+
+describe("ContextManager legacy battery migration", () => {
+  it("strips device.battery and timestamps.battery from persisted context on load", async () => {
+    const tmpDir = await makeTmpDir("betterclaw-migrate-");
+
+    // Write a legacy context.json that contains a battery field
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const legacyContext = {
+      device: {
+        battery: { level: 0.42, state: "unplugged", isLowPowerMode: false, updatedAt: 1740000000 },
+        location: null,
+        health: null,
+      },
+      activity: {
+        currentZone: null,
+        zoneEnteredAt: null,
+        lastTransition: null,
+        isStationary: true,
+        stationarySince: null,
+      },
+      meta: { lastEventAt: 1740000000, eventsToday: 5, lastAgentPushAt: 0, pushesToday: 1 },
+      _timestamps: { battery: 1740000000, location: 1740000100 },
+      _tier: "premium",
+    };
+    await fs.mkdir(tmpDir, { recursive: true });
+    await fs.writeFile(path.join(tmpDir, "context.json"), JSON.stringify(legacyContext, null, 2), "utf8");
+
+    const ctx = new ContextManager(tmpDir);
+    await ctx.load();
+
+    // battery field must be gone
+    expect((ctx.get().device as Record<string, unknown>).battery).toBeUndefined();
+    // battery timestamp must be stripped
+    expect(ctx.getTimestamp("battery")).toBeUndefined();
+    // other data must be preserved
+    expect(ctx.getTimestamp("location")).toBe(1740000100);
+    expect(ctx.get().meta.eventsToday).toBe(5);
+    expect(ctx.getRuntimeState().tier).toBe("premium");
+  });
+
+  it("load is idempotent when battery was never present", async () => {
+    const tmpDir = await makeTmpDir("betterclaw-migrate-clean-");
+
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const cleanContext = {
+      device: { location: null, health: null },
+      activity: { currentZone: null, zoneEnteredAt: null, lastTransition: null, isStationary: true, stationarySince: null },
+      meta: { lastEventAt: 0, eventsToday: 0, lastAgentPushAt: 0, pushesToday: 0 },
+      _timestamps: { location: 1740000200 },
+      _tier: null,
+    };
+    await fs.mkdir(tmpDir, { recursive: true });
+    await fs.writeFile(path.join(tmpDir, "context.json"), JSON.stringify(cleanContext, null, 2), "utf8");
+
+    const ctx = new ContextManager(tmpDir);
+    await ctx.load();
+
+    expect((ctx.get().device as Record<string, unknown>).battery).toBeUndefined();
+    expect(ctx.getTimestamp("location")).toBe(1740000200);
   });
 });

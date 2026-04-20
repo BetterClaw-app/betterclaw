@@ -188,28 +188,6 @@ describe("PatternEngine.compute", () => {
     expect(officeRoutine!.typicalArrive).not.toBeNull();
   });
 
-  it("computes battery patterns from battery events", async () => {
-    const now = Date.now() / 1000;
-    for (let i = 0; i < 10; i++) {
-      await log.append({
-        event: {
-          subscriptionId: i < 3 ? "default.battery-low" : "default.battery",
-          source: "device.battery",
-          data: { level: 0.1 + i * 0.08 },
-          firedAt: now - i * 86400,
-        },
-        decision: "push",
-        reason: "test",
-        timestamp: now - i * 86400,
-      });
-    }
-
-    const engine = new PatternEngine(ctx, log, 14);
-    const patterns = await engine.compute();
-    expect(patterns.batteryPatterns).toBeDefined();
-    expect(patterns.batteryPatterns.lowBatteryFrequency).toBeGreaterThan(0);
-  });
-
   it("computes event stats with top sources", async () => {
     const now = Date.now() / 1000;
     const sources = ["device.battery", "device.battery", "health.summary", "geofence.triggered"];
@@ -277,9 +255,7 @@ describe("emptyPatterns", () => {
     expect(p.healthTrends.sleepTrend).toBeNull();
     expect(p.healthTrends.restingHrAvg7d).toBeNull();
     expect(p.healthTrends.restingHrTrend).toBeNull();
-    expect(p.batteryPatterns.avgDrainPerHour).toBeNull();
-    expect(p.batteryPatterns.typicalChargeTime).toBeNull();
-    expect(p.batteryPatterns.lowBatteryFrequency).toBeNull();
+    expect((p as Record<string, unknown>).batteryPatterns).toBeUndefined();
     expect(p.eventStats.eventsPerDay7d).toBe(0);
     expect(p.eventStats.pushesPerDay7d).toBe(0);
     expect(p.eventStats.dropRate7d).toBe(0);
