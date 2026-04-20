@@ -209,8 +209,6 @@ export default {
         const state = ctxManager.get();
         const runtime = ctxManager.getRuntimeState();
         const timestamps = {
-          // P2: remove when getTimestamp("battery") is dropped
-          battery: ctxManager.getTimestamp("battery") ?? null,
           location: ctxManager.getTimestamp("location") ?? null,
           health: ctxManager.getTimestamp("health") ?? null,
           activity: ctxManager.getTimestamp("activity") ?? null,
@@ -322,8 +320,6 @@ export default {
         if (!initialized) await initPromise;
 
         const snapshot = params as {
-          // P2: remove when applySnapshot battery branch is dropped
-          battery?: { level: number; state: string; isLowPowerMode: boolean };
           location?: { latitude: number; longitude: number };
           health?: {
             stepsToday?: number; distanceMeters?: number; heartRateAvg?: number;

@@ -23,7 +23,7 @@ export class ContextManager {
 
   static empty(): DeviceContext {
     return {
-      device: { battery: null, location: null, health: null },
+      device: { location: null, health: null },
       activity: {
         currentZone: null,
         zoneEnteredAt: null,
@@ -52,6 +52,13 @@ export class ContextManager {
         this.runtimeState = { ...this.runtimeState, tier: savedTier };
       }
       this.context = parsed as DeviceContext;
+      // One-shot migration: strip legacy battery field from persisted context
+      // (see spec 2026-04-20-battery-tracking-removal-design.md)
+      const device = (this.context.device ?? {}) as Record<string, unknown>;
+      if (device.battery !== undefined) {
+        delete device.battery;
+        delete this.timestamps.battery;
+      }
     } catch {
       this.context = ContextManager.empty();
       this.timestamps = {};
@@ -74,10 +81,9 @@ export class ContextManager {
   }
 
   /** Returns age of each device data section in seconds, or null if no data */
-  getDataAge(): { battery: number | null; location: number | null; health: number | null } {
+  getDataAge(): { location: number | null; health: number | null } {
     const now = Date.now() / 1000;
     return {
-      battery: this.timestamps.battery != null ? Math.round(now - this.timestamps.battery) : null,
       location: this.timestamps.location != null ? Math.round(now - this.timestamps.location) : null,
       health: this.timestamps.health != null ? Math.round(now - this.timestamps.health) : null,
     };
@@ -115,16 +121,6 @@ export class ContextManager {
     this.context.meta.eventsToday++;
 
     switch (event.source) {
-      case "device.battery":
-        this.context.device.battery = {
-          level: data.level ?? this.context.device.battery?.level ?? 0,
-          state: this.context.device.battery?.state ?? "unknown",
-          isLowPowerMode: (data.isLowPowerMode ?? 0) === 1,
-          updatedAt: data.updatedAt ?? now,
-        };
-        this.timestamps.battery = event.firedAt;
-        break;
-
       case "geofence.triggered": {
         const type = data.type === 1 ? "enter" : "exit";
         const zoneName = event.metadata?.zoneName ?? null;
@@ -183,7 +179,6 @@ export class ContextManager {
   }
 
   applySnapshot(snapshot: {
-    battery?: { level: number; state: string; isLowPowerMode: boolean };
     location?: { latitude: number; longitude: number };
     health?: {
       stepsToday?: number; distanceMeters?: number; heartRateAvg?: number;
@@ -191,18 +186,9 @@ export class ContextManager {
       sleepDurationSeconds?: number;
     };
     geofence?: { type: string; zoneName: string; latitude: number; longitude: number };
+    [key: string]: unknown;
   }, timestamp?: number): void {
     const now = timestamp ?? Date.now() / 1000;
-
-    if (snapshot.battery) {
-      this.context.device.battery = {
-        level: snapshot.battery.level,
-        state: snapshot.battery.state,
-        isLowPowerMode: snapshot.battery.isLowPowerMode,
-        updatedAt: now,
-      };
-      this.timestamps.battery = now;
-    }
 
     if (snapshot.location) {
       this.context.device.location = {
