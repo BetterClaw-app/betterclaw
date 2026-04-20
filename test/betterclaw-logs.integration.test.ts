@@ -17,7 +17,7 @@ function entriesOf(r: { entries: string }): RedactedEntry[] {
 function allOn() {
   return {
     connection: true, heartbeat: true, commands: true, dns: true,
-    lifecycle: true, battery: true,
+    lifecycle: true,
     subscriptions: true, health: true, location: true, geofence: true,
   };
 }

@@ -509,7 +509,7 @@ describe("plugin registration", () => {
       // Valid settings → envelope
       const allOn = {
         connection: true, heartbeat: true, commands: true, dns: true,
-        lifecycle: true, battery: true,
+        lifecycle: true,
         subscriptions: true, health: true, location: true, geofence: true,
       };
       const res = await invokeMethod(api, "betterclaw.logs", { settings: allOn, limit: 10 });
@@ -529,7 +529,7 @@ describe("plugin registration", () => {
       const api = await registerPlugin();
       const allOn = {
         connection: true, heartbeat: true, commands: true, dns: true,
-        lifecycle: true, battery: true,
+        lifecycle: true,
         subscriptions: true, health: true, location: true, geofence: true,
       };
       const res = await invokeMethod(api, "betterclaw.logs", {
@@ -553,7 +553,7 @@ describe("plugin registration", () => {
 
       const allOn = {
         connection: true, heartbeat: true, commands: true, dns: true,
-        lifecycle: true, battery: true,
+        lifecycle: true,
         subscriptions: true, health: true, location: true, geofence: true,
       };
       // Use a well-formed cursor so decodeCursor passes; the mocked readLogs

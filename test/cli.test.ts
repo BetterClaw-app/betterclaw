@@ -8,7 +8,6 @@ describe("CLI setup", () => {
     expect(BETTERCLAW_COMMANDS).toMatchInlineSnapshot(`
       [
         "clipboard.write",
-        "device.battery",
         "geofence.add",
         "geofence.list",
         "geofence.remove",
@@ -51,7 +50,7 @@ describe("CLI setup", () => {
   });
 
   it("returns count of newly added commands", () => {
-    const existing = ["system.notify", "device.battery"];
+    const existing = ["system.notify", "location.get"];
     const merged = mergeAllowCommands(existing, BETTERCLAW_COMMANDS);
     const added = merged.length - existing.length;
     // All BetterClaw commands minus the 2 that already exist

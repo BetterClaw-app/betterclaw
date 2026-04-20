@@ -17,7 +17,7 @@
 
 ## What is this?
 
-This is the server-side plugin for [BetterClaw](https://betterclaw.app), an iOS app that connects your iPhone's sensors to your [OpenClaw](https://openclaw.dev) AI agent. The app streams device events (location, battery, health, geofences) to your gateway — this plugin decides what to do with them.
+This is the server-side plugin for [BetterClaw](https://betterclaw.app), an iOS app that connects your iPhone's sensors to your [OpenClaw](https://openclaw.dev) AI agent. The app streams device events (location, health, geofences) to your gateway — this plugin decides what to do with them.
 
 The plugin differentiates between **free** and **premium** tiers:
 
@@ -38,7 +38,7 @@ The plugin differentiates between **free** and **premium** tiers:
 - **Engagement Tracking** — Deterministic transcript scanner finds pushed messages by timestamp, then an LLM classifies user engagement as `engaged`, `ignored`, or `unclear`. Feeds into the learner.
 - **Adaptive Learner** — Daily subagent builds a simplified triage profile (`summary` + `interruptionTolerance`) from event history, engagement data, and workspace memory.
 - **Calibration Period** — First 3 days after install, triage runs in rules-only mode while the system collects engagement data. Skipped automatically for users upgrading from v2.
-- **Device Context** — Rolling state snapshot with per-field timestamps and `dataAgeSeconds`: battery, GPS, zone occupancy, health metrics, activity classification.
+- **Device Context** — Rolling state snapshot with per-field timestamps and `dataAgeSeconds`: GPS, zone occupancy, health metrics, activity classification.
 - **Pattern Recognition** — Daily analysis computes location routines, health trends (7d/30d baselines), and event frequency stats.
 - **Per-Device Config** — iOS app can override push budget at runtime via RPC.
 - **Agent Tools** — `check_tier` for routing decisions, `get_context` for patterns/trends/cached state.
