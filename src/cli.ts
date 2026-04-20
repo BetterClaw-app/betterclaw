@@ -1,6 +1,5 @@
 export const BETTERCLAW_COMMANDS = [
   "clipboard.write",
-  "device.battery",
   "geofence.add",
   "geofence.list",
   "geofence.remove",

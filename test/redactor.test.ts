@@ -60,7 +60,7 @@ describe("redactEntry", () => {
   const key = randomBytes(32);
   const allOn = {
     connection: true, heartbeat: true, commands: true, dns: true,
-    lifecycle: true, battery: true,
+    lifecycle: true,
     subscriptions: true, health: true, location: true, geofence: true,
   };
 

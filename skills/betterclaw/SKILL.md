@@ -16,9 +16,9 @@ You have access to the user's physical device state via BetterClaw (iOS companio
 
 You have two complementary tools:
 
-- **Node commands** (`location.get`, `device.battery`, `health.*`, etc.)
+- **Node commands** (`location.get`, `health.*`, etc.)
   return live data directly from the device. Use these when the user asks
-  for current state — "where am I?", "what's my battery?", "how many steps?"
+  for current state — "where am I?", "how many steps?"
 
 - **`get_context`** returns patterns, trends, activity zone, event history,
   and a cached device snapshot. The snapshot may not be perfectly recent.

@@ -150,7 +150,6 @@ Each category is a boolean in `ExportSettings`. Disabling a category drops all e
 | `commands` | — |
 | `dns` | — |
 | `lifecycle` | `plugin.events`, `plugin.filter`, `plugin.learner`, `plugin.pipeline`, `plugin.routing`, `plugin.rpc`, `plugin.service`, `plugin.triage` |
-| `battery` | — |
 | `subscriptions` | `plugin.reactions` |
 | `health` | `plugin.context`, `plugin.patterns` |
 | `location` | — |

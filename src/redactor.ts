@@ -65,7 +65,7 @@ export function drop(): undefined {
 
 export type ExportCategory =
   | "connection" | "heartbeat" | "commands" | "dns"
-  | "lifecycle" | "battery"
+  | "lifecycle"
   | "subscriptions" | "health" | "location" | "geofence";
 
 export type ExportSettings = Record<ExportCategory, boolean>;

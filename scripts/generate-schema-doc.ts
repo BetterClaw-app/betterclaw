@@ -55,7 +55,7 @@ function render(): string {
   lines.push(`|---|---|`);
   const CATEGORY_ORDER: readonly string[] = [
     "connection", "heartbeat", "commands", "dns",
-    "lifecycle", "battery",
+    "lifecycle",
     "subscriptions", "health", "location", "geofence",
   ];
   const byCategory = new Map<string, string[]>();
