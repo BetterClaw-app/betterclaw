@@ -21,7 +21,6 @@ export function buildTriagePrompt(
   budget?: { budgetUsed: number; budgetTotal: number },
 ): string {
   const ctx = context.get();
-  const battery = ctx.device.battery;
   const location = ctx.device.location;
   const activity = ctx.activity;
 
@@ -56,7 +55,6 @@ Quiet hours are a soft default. If a rule has \`respectQuietHours: false\`, the 
 
   const contextSection = [
     `## Current Device Context`,
-    battery ? `Battery: ${Math.round(battery.level * 100)}% (${battery.state})` : null,
     location?.label ? `Location: ${location.label}` : null,
     activity?.currentZone ? `Zone: ${activity.currentZone}` : null,
   ].filter(Boolean).join("\n");

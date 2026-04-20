@@ -1,9 +1,7 @@
 import type { DeviceContext, DeviceEvent, FilterDecision } from "./types.js";
-import { dlog } from "./diagnostic-logger.js";
 
 export class RulesEngine {
   private lastFired: Map<string, number> = new Map();
-  private lastPushedBatteryLevel: number | undefined;
   private pushBudget: number;
   private cooldowns: Record<string, number>;
   private defaultCooldown: number;
@@ -15,7 +13,7 @@ export class RulesEngine {
   }
 
   evaluate(event: DeviceEvent, context: DeviceContext, budgetOverride?: number): FilterDecision {
-    // Note: debug, critical battery, and geofence events intentionally bypass the push
+    // Note: debug and geofence events intentionally bypass the push
     // budget check below. These are high-priority events that should always reach the
     // agent regardless of daily budget limits.
 
@@ -34,34 +32,9 @@ export class RulesEngine {
       };
     }
 
-    // Critical battery — always push
-    if (event.subscriptionId === "default.battery-critical") {
-      return { action: "push", reason: "critical battery — always push" };
-    }
-
     // Geofence — always push
     if (event.source === "geofence.triggered") {
       return { action: "push", reason: "geofence event — always push" };
-    }
-
-    // Battery low — check if level changed since last push
-    if (event.subscriptionId === "default.battery-low") {
-      const currentLevel = event.data.level;
-      const lastPushedLevel = this.lastPushedBatteryLevel;
-      const deduplicated =
-        lastPushedLevel !== undefined &&
-        currentLevel !== undefined &&
-        Math.abs(currentLevel - lastPushedLevel) < 0.02;
-      dlog.debug("plugin.pipeline", "dedup.checked", "battery dedup evaluated", {
-        subscriptionId: event.subscriptionId,
-        currentLevel,
-        lastPushedLevel,
-        deduplicated,
-      });
-      if (deduplicated) {
-        return { action: "drop", reason: "battery-low: level unchanged since last push" };
-      }
-      return { action: "push", reason: "battery low — level changed" };
     }
 
     // Push budget check
@@ -74,22 +47,16 @@ export class RulesEngine {
     return { action: "ambiguous", reason: "no rule matched — forward to LLM judgment" };
   }
 
-  recordFired(subscriptionId: string, firedAt: number, data?: Record<string, number>): void {
+  recordFired(subscriptionId: string, firedAt: number): void {
     this.lastFired.set(subscriptionId, firedAt);
-    if (subscriptionId === "default.battery-low" && data?.level != null) {
-      this.lastPushedBatteryLevel = data.level;
-    }
   }
 
   /** Restore cooldown state (call on load) */
-  restoreCooldowns(entries: Array<{ subscriptionId: string; firedAt: number; data?: Record<string, number> }>): void {
-    for (const { subscriptionId, firedAt, data } of entries) {
+  restoreCooldowns(entries: Array<{ subscriptionId: string; firedAt: number }>): void {
+    for (const { subscriptionId, firedAt } of entries) {
       const existing = this.lastFired.get(subscriptionId);
       if (!existing || firedAt > existing) {
         this.lastFired.set(subscriptionId, firedAt);
-      }
-      if (subscriptionId === "default.battery-low" && data?.level != null) {
-        this.lastPushedBatteryLevel = data.level;
       }
     }
   }

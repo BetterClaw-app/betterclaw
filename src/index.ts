@@ -27,8 +27,6 @@ import * as path from "node:path";
 export type { PluginConfig } from "./types.js";
 
 const DEFAULT_COOLDOWNS: Record<string, number> = {
-  "default.battery-low": 3600,
-  "default.battery-critical": 1800,
   "default.daily-health": 82800,
   "default.geofence": 300,
 };
@@ -133,7 +131,7 @@ export default {
           rules.restoreCooldowns(
             recentEvents
               .filter((e) => e.decision === "push")
-              .map((e) => ({ subscriptionId: e.event.subscriptionId, firedAt: e.event.firedAt, data: e.event.data })),
+              .map((e) => ({ subscriptionId: e.event.subscriptionId, firedAt: e.event.firedAt })),
           );
           diagnosticLogger.info("plugin.service", "init.complete", "async init complete", { durationMs: Date.now() - initStart });
         } catch (err) {
@@ -211,6 +209,7 @@ export default {
         const state = ctxManager.get();
         const runtime = ctxManager.getRuntimeState();
         const timestamps = {
+          // P2: remove when getTimestamp("battery") is dropped
           battery: ctxManager.getTimestamp("battery") ?? null,
           location: ctxManager.getTimestamp("location") ?? null,
           health: ctxManager.getTimestamp("health") ?? null,
@@ -323,6 +322,7 @@ export default {
         if (!initialized) await initPromise;
 
         const snapshot = params as {
+          // P2: remove when applySnapshot battery branch is dropped
           battery?: { level: number; state: string; isLowPowerMode: boolean };
           location?: { latitude: number; longitude: number };
           health?: {
@@ -394,15 +394,11 @@ export default {
       description: "Show current BetterClaw device context snapshot",
       handler: () => {
         const state = ctxManager.get();
-        const battery = state.device.battery;
         const loc = state.device.location;
         const health = state.device.health;
         const activity = state.activity;
 
         const lines: string[] = [];
-        if (battery) {
-          lines.push(`Battery: ${Math.round(battery.level * 100)}% (${battery.state})`);
-        }
         if (loc) {
           lines.push(`Location: ${loc.label ?? `${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)}`}`);
         }

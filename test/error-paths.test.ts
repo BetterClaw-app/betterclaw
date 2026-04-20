@@ -33,11 +33,11 @@ const baseConfig: PluginConfig = {
   defaultCooldown: 1800,
 };
 
-function makeBatteryCriticalEvent(): DeviceEvent {
+function makeTestEvent(): DeviceEvent {
   return {
-    subscriptionId: "default.battery-critical",
-    source: "device.battery",
-    data: { level: 0.05 },
+    subscriptionId: "sub.test-explicit",
+    source: "test.explicit",
+    data: {},
     firedAt: Date.now() / 1000,
   };
 }
@@ -95,8 +95,20 @@ describe("pipeline error paths", () => {
     const deps = await makeDeps(tmpDir, { runRejects: true });
     // Set tier=premium, smartMode=true so pipeline reaches pushToAgent
     deps.context.setRuntimeState({ tier: "premium", smartMode: true });
+    // Inject an explicit notify rule so the event reaches subagent.run
+    await deps.routing.applyPatch(
+      [{ op: "add", path: "/rules/0", value: {
+        id: "test-explicit-notify",
+        match: { source: "test.explicit" },
+        action: "notify",
+        explicit: true,
+        respectQuietHours: false,
+      } }],
+      "default",
+      "test fixture",
+    );
 
-    const event = makeBatteryCriticalEvent();
+    const event = makeTestEvent();
     await processEvent(deps, event);
 
     // Read event log — last entry should be "drop" with reason containing "dispatch failed"
@@ -115,7 +127,7 @@ describe("pipeline error paths", () => {
     // Sabotage context.save to return false
     vi.spyOn(deps.context, "save").mockResolvedValue(false);
 
-    const event = makeBatteryCriticalEvent();
+    const event = makeTestEvent();
     // Should not throw
     await processEvent(deps, event);
 
@@ -132,7 +144,7 @@ describe("pipeline error paths", () => {
     // Sabotage events.append to return false
     vi.spyOn(deps.events, "append").mockResolvedValue(false);
 
-    const event = makeBatteryCriticalEvent();
+    const event = makeTestEvent();
     // Should not throw
     await expect(processEvent(deps, event)).resolves.toBeUndefined();
   });
@@ -252,10 +264,10 @@ describe("scanPendingReactions API failure", () => {
     const reactions = new ReactionTracker(tmpDir);
     // Seed a pending reaction with BetterClaw marker in messageSummary
     reactions.recordPush({
-      subscriptionId: "default.battery-low",
-      source: "device.battery",
+      subscriptionId: "default.daily-health",
+      source: "health.daily",
       pushedAt: Date.now() / 1000,
-      messageSummary: "[BetterClaw device event — processed by context plugin] battery low",
+      messageSummary: "[BetterClaw device event — processed by context plugin] health summary",
     });
 
     const api = {

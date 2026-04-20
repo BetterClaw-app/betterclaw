@@ -57,11 +57,11 @@ function makeEvent(overrides?: Partial<DeviceEvent>): DeviceEvent {
   };
 }
 
-function makeBatteryCriticalEvent(): DeviceEvent {
+function makeTestExplicitEvent(): DeviceEvent {
   return {
-    subscriptionId: "default.battery-critical",
-    source: "device.battery",
-    data: { level: 0.05 },
+    subscriptionId: "sub.test-explicit",
+    source: "test.explicit",
+    data: {},
     firedAt: Date.now() / 1000,
   };
 }
@@ -98,7 +98,7 @@ describe("pipeline integration", () => {
     const deps = await makeDeps(tmpDir);
     deps.context.setRuntimeState({ tier: "free", smartMode: false });
 
-    await processEvent(deps, makeBatteryCriticalEvent());
+    await processEvent(deps, makeEvent());
 
     const entries = await deps.events.readRecent(10);
     expect(entries).toHaveLength(1);
@@ -109,13 +109,25 @@ describe("pipeline integration", () => {
     expect(mockApi.runtime.subagent.run).not.toHaveBeenCalled();
   });
 
-  it("premium tier: critical battery event matches explicit rule (notify), reaction recorded as pending", async () => {
+  it("premium tier: explicit notify rule matches event (notify), reaction recorded as pending", async () => {
     const deps = await makeDeps(tmpDir);
     deps.context.setRuntimeState({ tier: "premium", smartMode: true });
+    // Inject an explicit notify rule for the test event
+    await deps.routing.applyPatch(
+      [{ op: "add", path: "/rules/0", value: {
+        id: "test-explicit-notify",
+        match: { source: "test.explicit" },
+        action: "notify",
+        explicit: true,
+        respectQuietHours: false,
+      } }],
+      "default",
+      "test fixture",
+    );
 
-    await processEvent(deps, makeBatteryCriticalEvent());
+    await processEvent(deps, makeTestExplicitEvent());
 
-    // Event log should have a notify decision (battery-critical rule is explicit+notify)
+    // Event log should have a notify decision (explicit notify rule)
     const entries = await deps.events.readRecent(10);
     expect(entries).toHaveLength(1);
     expect(entries[0].decision).toBe("notify");
@@ -126,7 +138,7 @@ describe("pipeline integration", () => {
     // Reaction recorded as pending
     const reactions = deps.reactions.getRecent();
     expect(reactions).toHaveLength(1);
-    expect(reactions[0].subscriptionId).toBe("default.battery-critical");
+    expect(reactions[0].subscriptionId).toBe("sub.test-explicit");
     expect(reactions[0].status).toBe("pending");
   });
 
@@ -134,7 +146,7 @@ describe("pipeline integration", () => {
     const deps = await makeDeps(tmpDir);
     deps.context.setRuntimeState({ tier: "premium", smartMode: false });
 
-    await processEvent(deps, makeBatteryCriticalEvent());
+    await processEvent(deps, makeEvent());
 
     const entries = await deps.events.readRecent(10);
     expect(entries).toHaveLength(1);

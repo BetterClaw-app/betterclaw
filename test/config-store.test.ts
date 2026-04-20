@@ -17,7 +17,7 @@ describe("RoutingConfigStore.load — first run", () => {
     const store = await RoutingConfigStore.load(tmpDir, log);
     const rules = store.getRules();
     expect(rules.version).toBe(1);
-    expect(rules.rules.find(r => r.id === "battery-critical")).toBeDefined();
+    expect(rules.rules.find(r => r.id === "geofence-enter-default")).toBeDefined();
     expect(rules.rules[rules.rules.length - 1].id).toBe("default-drop");
 
     // File created

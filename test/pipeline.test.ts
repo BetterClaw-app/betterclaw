@@ -64,11 +64,22 @@ const evGeofenceEnter = (label: string): DeviceEvent => ({
 describe("pipeline ternary dispatch", () => {
   it("routes notify → subagent.run with deliver:true (explicit rule short-circuits LLM)", async () => {
     const deps = await makeDeps();
-    // battery-critical is explicit notify in shipped defaults
+    // Inject an explicit notify rule so we can test without battery
+    await deps.routing.applyPatch(
+      [{ op: "add", path: "/rules/0", value: {
+        id: "test-explicit-notify",
+        match: { source: "test.explicit" },
+        action: "notify",
+        explicit: true,
+        respectQuietHours: false,
+      } }],
+      "default",
+      "test fixture",
+    );
     await processEvent(deps, {
-      subscriptionId: "default.battery-critical",
-      source: "device.battery",
-      data: { level: 0.05 },
+      subscriptionId: "sub.explicit",
+      source: "test.explicit",
+      data: {},
       firedAt: 1776000000,
     });
     expect(subagentRunMock).toHaveBeenCalledTimes(1);
@@ -130,15 +141,32 @@ describe("pipeline ternary dispatch", () => {
 
   it("existing RulesEngine cooldown suppresses duplicate events (regression guard)", async () => {
     const deps = await makeDeps();
-    // Two identical battery-critical events rapidly; cooldown must suppress the second.
+    // Inject an explicit notify rule with a custom cooldown for this test
+    await deps.routing.applyPatch(
+      [{ op: "add", path: "/rules/0", value: {
+        id: "test-cooldown",
+        match: { source: "test.cooldown" },
+        action: "notify",
+        explicit: true,
+        respectQuietHours: false,
+      } }],
+      "default",
+      "test fixture",
+    );
+    // Override cooldowns to add a 300s cooldown for this subscription
+    const rulesWithCooldown = new (deps.rules.constructor as typeof import("../src/filter.js").RulesEngine)(
+      10, { "sub.cooldown": 300 }, 1800,
+    );
+    deps.rules = rulesWithCooldown as typeof deps.rules;
+
     const ev = {
-      subscriptionId: "default.battery-critical",
-      source: "device.battery" as const,
-      data: { level: 0.05 },
+      subscriptionId: "sub.cooldown",
+      source: "test.cooldown" as const,
+      data: {},
       firedAt: 1776000000,
     };
     await processEvent(deps, ev);
-    await processEvent(deps, { ...ev, firedAt: ev.firedAt + 60 }); // 60s later
+    await processEvent(deps, { ...ev, firedAt: ev.firedAt + 60 }); // 60s later (< 300s cooldown)
     expect(subagentRunMock).toHaveBeenCalledTimes(1); // second was cooldown-suppressed
   });
 });
