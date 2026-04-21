@@ -114,6 +114,9 @@
 | `learn.triggered` | `info` | — |
 | `logs.error` | `error` | — |
 | `ping.received` | `info` | — |
+| `shortcut.delivered` | `info` | `commandId`, `ok`, `status` |
+| `shortcut.error` | `error` | — |
+| `shortcut.failed` | `error` | `commandId` |
 | `snapshot.applied` | `info` | `fieldCount` |
 | `snapshot.error` | `error` | — |
 

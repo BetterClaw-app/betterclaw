@@ -130,8 +130,8 @@ export default {
           const recentEvents = await eventLog.readSince(Date.now() / 1000 - 86400);
           rules.restoreCooldowns(
             recentEvents
-              .filter((e) => e.decision === "push")
-              .map((e) => ({ subscriptionId: e.event.subscriptionId, firedAt: e.event.firedAt })),
+              .filter((e) => e.decision === "push" || e.decision === "notify")
+              .map((e) => ({ subscriptionId: e.event.subscriptionId, at: e.timestamp })),
           );
           diagnosticLogger.info("plugin.service", "init.complete", "async init complete", { durationMs: Date.now() - initStart });
         } catch (err) {
@@ -448,6 +448,69 @@ export default {
       } catch (err) {
         diagnosticLogger.error("plugin.rpc", "event.error", "event handler error", errorFields(err));
         respond(false, undefined, { code: "INTERNAL_ERROR", message: "event processing failed" });
+      }
+    });
+
+    // Shortcut-result intake RPC — called by the tunnel when a `shortcuts.run`
+    // result arrives after its RPC window has closed (user tapped the
+    // notification too late, or the tunnel restarted mid-wait). Relays the
+    // envelope into the agent session as a persistent turn so the agent still
+    // learns the outcome of a shortcut it had given up on.
+    api.registerGatewayMethod("betterclaw.shortcutResult", async ({ params, respond }) => {
+      try {
+        if (!initialized) await initPromise;
+
+        const commandId = typeof params?.commandId === "string" ? params.commandId : "";
+        const ok = typeof params?.ok === "boolean" ? params.ok : false;
+        const status = typeof params?.status === "string" ? params.status : "";
+        const envelopeJSON = typeof params?.envelopeJSON === "string" ? params.envelopeJSON : "";
+        const errorText = typeof params?.error === "string" ? params.error : undefined;
+
+        if (!commandId || !status) {
+          respond(false, undefined, { code: "INVALID_PARAMS", message: "commandId and status required" });
+          return;
+        }
+
+        respond(true, { accepted: true });
+
+        let dataSummary = envelopeJSON;
+        try {
+          const parsed = JSON.parse(envelopeJSON) as Record<string, unknown>;
+          if (parsed && typeof parsed === "object" && "data" in parsed) {
+            dataSummary = JSON.stringify(parsed.data);
+          }
+        } catch {
+          // Non-JSON envelope — already reported upstream by parser; just forward raw.
+        }
+
+        const parts = [
+          `Shortcut result (late): commandId=${commandId}`,
+          `ok=${ok}`,
+          `status=${status}`,
+        ];
+        if (errorText) {
+          parts.push(`error=${errorText}`);
+        } else if (ok) {
+          parts.push(`data=${dataSummary}`);
+        }
+        const message = parts.join(" ");
+
+        try {
+          await api.runtime.subagent.run({
+            sessionKey: "main",
+            message,
+            deliver: true,
+            idempotencyKey: `shortcut-late-${commandId}`,
+          });
+          diagnosticLogger.info("plugin.rpc", "shortcut.delivered", "late shortcut result delivered to agent",
+            { commandId, ok, status });
+        } catch (err) {
+          diagnosticLogger.error("plugin.rpc", "shortcut.failed", "subagent.run failed for late shortcut result",
+            { commandId, ...errorFields(err) });
+        }
+      } catch (err) {
+        diagnosticLogger.error("plugin.rpc", "shortcut.error", "shortcutResult handler error", errorFields(err));
+        respond(false, undefined, { code: "INTERNAL_ERROR", message: "shortcutResult processing failed" });
       }
     });
 
