@@ -203,7 +203,7 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
       idempotencyKey: `event-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
     });
     // Record push — feeds RulesEngine cooldowns + push-budget + reactions.
-    rules.recordFired(event.subscriptionId, event.firedAt);
+    rules.recordFired(event.subscriptionId);
     context.recordPush();
     deps.reactions.recordPush({
       subscriptionId: event.subscriptionId,

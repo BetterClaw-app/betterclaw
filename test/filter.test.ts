@@ -47,8 +47,9 @@ describe("RulesEngine", () => {
     };
     rules.recordFired("default.daily-health", 1740000000);
 
-    const event2 = { ...event, firedAt: 1740000000 + 3600 }; // 1hr later (< 82800s cooldown)
-    const decision = rules.evaluate(event2, emptyContext);
+    // 1hr later (< 82800s cooldown). Dedup now measures gateway time, so
+    // pass `now` explicitly rather than relying on event.firedAt.
+    const decision = rules.evaluate(event, emptyContext, undefined, 1740000000 + 3600);
     expect(decision.action).toBe("drop");
     expect(decision.reason).toContain("dedup");
   });
@@ -59,25 +60,48 @@ describe("RulesEngine", () => {
       subscriptionId: "default.daily-health",
       source: "health.daily",
       data: { stepsToday: 6000 },
-      firedAt: 1740000000 + 82900, // > 23hr cooldown
+      firedAt: 1740000000 + 82900,
     };
-    const decision = rules.evaluate(event, emptyContext);
+    // > 23hr cooldown — pass explicit now (gateway time) because dedup no
+    // longer reads event.firedAt.
+    const decision = rules.evaluate(event, emptyContext, undefined, 1740000000 + 82900);
     // daily-health falls through to ambiguous (no always-push branch); proves cooldown released
     expect(decision.action).toBe("ambiguous");
+  });
+
+  it("dedup is stable when iOS wall-clock jumps backwards", () => {
+    // Regression test for "fired -253s ago" bug. Previously dedup compared
+    // two iOS timestamps; an NTP correction that pulled the device clock
+    // backwards produced a negative delta, which passes "< cooldown" and
+    // silently dropped legitimate re-fires.
+    rules.recordFired("default.daily-health", 1740000000);
+    const event: DeviceEvent = {
+      subscriptionId: "default.daily-health",
+      source: "health.daily",
+      data: { stepsToday: 5000 },
+      firedAt: 1740000000 - 253, // iOS clock jumped back 253s
+    };
+    // Gateway time is 1s after the last recorded fire — well within cooldown.
+    const decision = rules.evaluate(event, emptyContext, undefined, 1740000000 + 1);
+    expect(decision.action).toBe("drop");
+    expect(decision.reason).toContain("fired 1s ago");
   });
 
   it("restoreCooldowns restores timestamps and deduplicates", () => {
     const ctx = ContextManager.empty();
 
-    // Simulate restoring from event log: a previous push
+    // Simulate restoring from event log: a previous push recorded at gateway time.
     rules.restoreCooldowns([
-      { subscriptionId: "default.daily-health", firedAt: 1740000000 },
+      { subscriptionId: "default.daily-health", at: 1740000000 },
     ]);
 
-    // Event within cooldown — should drop
+    // Event within cooldown — should drop. `now` is the gateway time of the
+    // new evaluation, 10000s after the restored fire.
     const result = rules.evaluate(
       { subscriptionId: "default.daily-health", source: "health.daily", data: { stepsToday: 5000 }, firedAt: 1740010000 },
       ctx,
+      undefined,
+      1740010000,
     );
     expect(result.action).toBe("drop");
     expect(result.reason).toContain("dedup");

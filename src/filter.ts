@@ -12,7 +12,7 @@ export class RulesEngine {
     this.defaultCooldown = defaultCooldown;
   }
 
-  evaluate(event: DeviceEvent, context: DeviceContext, budgetOverride?: number): FilterDecision {
+  evaluate(event: DeviceEvent, context: DeviceContext, budgetOverride?: number, now: number = Date.now() / 1000): FilterDecision {
     // Note: debug and geofence events intentionally bypass the push
     // budget check below. These are high-priority events that should always reach the
     // agent regardless of daily budget limits.
@@ -22,13 +22,16 @@ export class RulesEngine {
       return { action: "push", reason: "debug event — always push" };
     }
 
-    // Dedup check
+    // Dedup check. Uses gateway ingestion time (`now`) rather than iOS
+    // `event.firedAt` because iOS wall-clock can drift or jump backwards via
+    // NTP correction, which previously produced negative deltas like
+    // "fired -253s ago" and silently dropped legitimate re-fires.
     const lastFiredAt = this.lastFired.get(event.subscriptionId);
     const cooldown = this.cooldowns[event.subscriptionId] ?? this.defaultCooldown;
-    if (lastFiredAt && event.firedAt - lastFiredAt < cooldown) {
+    if (lastFiredAt && now - lastFiredAt < cooldown) {
       return {
         action: "drop",
-        reason: `dedup: ${event.subscriptionId} fired ${Math.round(event.firedAt - lastFiredAt)}s ago (cooldown: ${cooldown}s)`,
+        reason: `dedup: ${event.subscriptionId} fired ${Math.round(now - lastFiredAt)}s ago (cooldown: ${cooldown}s)`,
       };
     }
 
@@ -47,16 +50,17 @@ export class RulesEngine {
     return { action: "ambiguous", reason: "no rule matched — forward to LLM judgment" };
   }
 
-  recordFired(subscriptionId: string, firedAt: number): void {
-    this.lastFired.set(subscriptionId, firedAt);
+  recordFired(subscriptionId: string, at: number = Date.now() / 1000): void {
+    this.lastFired.set(subscriptionId, at);
   }
 
-  /** Restore cooldown state (call on load) */
-  restoreCooldowns(entries: Array<{ subscriptionId: string; firedAt: number }>): void {
-    for (const { subscriptionId, firedAt } of entries) {
+  /** Restore cooldown state (call on load). `at` values are gateway ingestion
+   *  timestamps (e.g. EventLogEntry.timestamp), not iOS event.firedAt. */
+  restoreCooldowns(entries: Array<{ subscriptionId: string; at: number }>): void {
+    for (const { subscriptionId, at } of entries) {
       const existing = this.lastFired.get(subscriptionId);
-      if (!existing || firedAt > existing) {
-        this.lastFired.set(subscriptionId, firedAt);
+      if (!existing || at > existing) {
+        this.lastFired.set(subscriptionId, at);
       }
     }
   }
