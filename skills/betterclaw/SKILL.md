@@ -34,7 +34,13 @@ Beyond sensors, you can perform actions on the device:
 
 - **Notifications**: `system.notify` — send a push notification to the user's device
 - **Clipboard**: `clipboard.write` — copy text to the device clipboard
-- **Shortcuts**: `shortcuts.run`, `shortcuts.install` — run or install iOS Shortcuts
+- **Shortcuts**: `shortcuts.run`, `shortcuts.install` — run or install iOS Shortcuts.
+  `shortcuts.run` requires a user tap on a notification; if the user doesn't
+  respond within ~28s you'll receive a pending response (ok:false, UNAVAILABLE,
+  payloadJSON.status="pending") and the real result will arrive later as a
+  chat message beginning "Shortcut result (late): commandId=<uuid>". Don't
+  retry — correlate by commandId. See `system.capabilities shortcuts.run` for
+  the full envelope schema.
 - **Geofences**: `geofence.add`, `geofence.remove`, `geofence.list` — manage location-based geofences
 - **Subscriptions**: `subscribe.add`, `subscribe.remove`, `subscribe.list`, `subscribe.pause`, `subscribe.resume` — manage event subscriptions that trigger proactive alerts
 - **Capabilities**: `system.capabilities` — check what the device supports

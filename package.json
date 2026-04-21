@@ -1,6 +1,6 @@
 {
   "name": "@better_openclaw/betterclaw",
-  "version": "3.5.1-dev.0",
+  "version": "3.5.2-dev.0",
   "description": "Intelligent event filtering, context tracking, and proactive triggers for BetterClaw",
   "license": "AGPL-3.0-only",
   "repository": {
