@@ -118,6 +118,9 @@ export const MANIFEST: {
         "snapshot.error":    { level: "error",   requiredKeys: [] },
         "event.error":       { level: "error",   requiredKeys: [] },
         "logs.error":        { level: "error",   requiredKeys: [] },
+        "shortcut.delivered": { level: "info",  requiredKeys: ["commandId", "ok", "status"] },
+        "shortcut.failed":    { level: "error", requiredKeys: ["commandId"] },
+        "shortcut.error":     { level: "error", requiredKeys: [] },
       },
     },
     "plugin.pipeline": {

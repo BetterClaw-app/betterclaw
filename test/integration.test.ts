@@ -209,7 +209,7 @@ describe("plugin registration", () => {
     await vi.waitFor(() => { expect(api.registerGatewayMethod).toHaveBeenCalled(); }, { timeout: 500 });
     await new Promise((r) => setTimeout(r, 50));
 
-    // 7 gateway methods
+    // 8 gateway methods
     const expectedMethods = [
       "betterclaw.ping",
       "betterclaw.config",
@@ -218,8 +218,9 @@ describe("plugin registration", () => {
       "betterclaw.snapshot",
       "betterclaw.logs",
       "betterclaw.event",
+      "betterclaw.shortcutResult",
     ];
-    expect(api.registerGatewayMethod).toHaveBeenCalledTimes(7);
+    expect(api.registerGatewayMethod).toHaveBeenCalledTimes(8);
     for (const method of expectedMethods) {
       expect(api._gatewayMethods.has(method)).toBe(true);
     }
@@ -371,6 +372,100 @@ describe("plugin registration", () => {
       });
       expect(res.ok).toBe(true);
       expect(res.result.accepted).toBe(true);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // betterclaw.shortcutResult
+  // -------------------------------------------------------------------------
+  describe("betterclaw.shortcutResult", () => {
+    it("returns INVALID_PARAMS when commandId missing", async () => {
+      const api = await registerPlugin();
+      const res = await invokeMethod(api, "betterclaw.shortcutResult", {
+        status: "success",
+        ok: true,
+        envelopeJSON: "{}",
+      });
+      expect(res.ok).toBe(false);
+      expect(res.error.code).toBe("INVALID_PARAMS");
+    });
+
+    it("returns INVALID_PARAMS when status missing", async () => {
+      const api = await registerPlugin();
+      const res = await invokeMethod(api, "betterclaw.shortcutResult", {
+        commandId: "cmd-x",
+        ok: true,
+        envelopeJSON: "{}",
+      });
+      expect(res.ok).toBe(false);
+      expect(res.error.code).toBe("INVALID_PARAMS");
+    });
+
+    it("accepts valid result and responds immediately", async () => {
+      const api = await registerPlugin();
+      const res = await invokeMethod(api, "betterclaw.shortcutResult", {
+        commandId: "cmd-1",
+        ok: true,
+        status: "success",
+        envelopeJSON: `{"v":1,"ok":true,"cmd":"cmd-1","status":"success","data":{"toggled":2},"chk":"END"}`,
+        receivedAt: 1700000000,
+      });
+      expect(res.ok).toBe(true);
+      expect(res.result.accepted).toBe(true);
+    });
+
+    it("relays the envelope to the agent session via subagent.run", async () => {
+      const api = await registerPlugin();
+      await invokeMethod(api, "betterclaw.shortcutResult", {
+        commandId: "cmd-relay",
+        ok: true,
+        status: "success",
+        envelopeJSON: `{"v":1,"ok":true,"cmd":"cmd-relay","status":"success","data":{"toggled":2},"chk":"END"}`,
+        receivedAt: 1700000000,
+      });
+      // Allow the fire-and-forget relay to complete
+      await new Promise((r) => setTimeout(r, 50));
+      expect(api.runtime.subagent.run).toHaveBeenCalledTimes(1);
+      const args = (api.runtime.subagent.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(args.sessionKey).toBe("main");
+      expect(args.deliver).toBe(true);
+      expect(args.idempotencyKey).toBe("shortcut-late-cmd-relay");
+      expect(args.message).toContain("cmd-relay");
+      expect(args.message).toContain("status=success");
+      expect(args.message).toContain(`"toggled":2`);
+    });
+
+    it("includes error message when envelope signals failure", async () => {
+      const api = await registerPlugin();
+      await invokeMethod(api, "betterclaw.shortcutResult", {
+        commandId: "cmd-err",
+        ok: false,
+        status: "error",
+        envelopeJSON: `{"v":1,"ok":false,"cmd":"cmd-err","status":"error","error":"boom","chk":"END"}`,
+        error: "boom",
+        receivedAt: 1700000000,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(api.runtime.subagent.run).toHaveBeenCalledTimes(1);
+      const args = (api.runtime.subagent.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(args.message).toContain("ok=false");
+      expect(args.message).toContain("status=error");
+      expect(args.message).toContain("error=boom");
+    });
+
+    it("tolerates non-JSON envelope by forwarding it as the data summary", async () => {
+      const api = await registerPlugin();
+      await invokeMethod(api, "betterclaw.shortcutResult", {
+        commandId: "cmd-bad",
+        ok: true,
+        status: "success",
+        envelopeJSON: "not-json",
+        receivedAt: 1700000000,
+      });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(api.runtime.subagent.run).toHaveBeenCalledTimes(1);
+      const args = (api.runtime.subagent.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(args.message).toContain("data=not-json");
     });
   });
 
