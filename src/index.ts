@@ -21,6 +21,7 @@ import { scanPendingReactions } from "./reaction-scanner.js";
 import { RoutingConfigStore } from "./routing/config-store.js";
 import { AuditLog } from "./routing/audit-log.js";
 import { createEditRoutingRulesTool } from "./tools/edit-routing-rules.js";
+import { pruneStaleBetterClawIosNodes } from "./node-hygiene.js";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -163,6 +164,21 @@ export default {
       }
 
       ctxManager.setRuntimeState({ tier, smartMode, ...(tz ? { tz } : {}) });
+
+      try {
+        const result = await pruneStaleBetterClawIosNodes(stateDir, context.nodeRegistry.listConnected());
+        const pruned = result.prunedNodeIds.length + result.prunedDeviceIds.length;
+        if (pruned > 0) {
+          diagnosticLogger.info("plugin.rpc", "node.hygiene", "pruned stale BetterClaw iOS nodes", {
+            pruned,
+            prunedNodePairings: result.prunedNodeIds.length,
+            prunedDevicePairings: result.prunedDeviceIds.length,
+            kept: result.kept,
+          });
+        }
+      } catch (err) {
+        diagnosticLogger.warning("plugin.rpc", "node.hygiene", "node hygiene failed", errorFields(err));
+      }
 
       const meta = ctxManager.get().meta;
       const effectiveBudget = ctxManager.getDeviceConfig().pushBudgetPerDay ?? config.pushBudgetPerDay;

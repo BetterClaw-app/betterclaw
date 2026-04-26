@@ -256,7 +256,12 @@ describe("plugin registration", () => {
 
   // Helper: create a mock context object for RPC handlers
   function mockContext() {
-    return { hasConnectedMobileNode: () => false };
+    return {
+      hasConnectedMobileNode: () => false,
+      nodeRegistry: {
+        listConnected: () => [],
+      },
+    };
   }
 
   // Helper: invoke a gateway method by name
@@ -303,6 +308,100 @@ describe("plugin registration", () => {
       await invokeMethod(api, "betterclaw.ping", { tier: "bogus", smartMode: false });
       const ctx = await invokeMethod(api, "betterclaw.context");
       expect(ctx.result.tier).toBe("free");
+    });
+
+    it("prunes stale disconnected BetterClaw iOS node pairings when a current iOS node is connected", async () => {
+      const api = await registerPlugin();
+      const nodesDir = path.join(tmpDir, "nodes");
+      const devicesDir = path.join(tmpDir, "devices");
+      const pairedPath = path.join(nodesDir, "paired.json");
+      const devicesPath = path.join(devicesDir, "paired.json");
+      await fs.mkdir(nodesDir, { recursive: true });
+      await fs.mkdir(devicesDir, { recursive: true });
+      const now = Date.now();
+      await fs.writeFile(pairedPath, JSON.stringify({
+        staleIos: {
+          nodeId: "staleIos",
+          displayName: "iPhone",
+          platform: "iOS",
+          deviceFamily: "iPhone",
+          modelIdentifier: "iPhone16,2",
+          commands: ["location.get", "health.steps"],
+          approvedAtMs: 1,
+          lastConnectedAtMs: 1,
+        },
+        currentIos: {
+          nodeId: "currentIos",
+          displayName: "iPhone",
+          platform: "iOS",
+          deviceFamily: "iPhone",
+          modelIdentifier: "iPhone16,2",
+          commands: ["location.get", "health.steps"],
+          approvedAtMs: now,
+          lastConnectedAtMs: now,
+        },
+        macNode: {
+          nodeId: "macNode",
+          displayName: "Mac",
+          platform: "macOS",
+          deviceFamily: "Mac",
+          commands: ["system.run"],
+          approvedAtMs: 1,
+        },
+      }, null, 2));
+      await fs.writeFile(devicesPath, JSON.stringify({
+        oldIosDevice: {
+          deviceId: "oldIosDevice",
+          displayName: "iPhone",
+          platform: "iOS 26.4.0",
+          clientId: "openclaw-ios",
+          clientMode: "node",
+          roles: ["operator", "node"],
+          approvedAtMs: 1,
+        },
+        foregroundOnlyDevice: {
+          deviceId: "foregroundOnlyDevice",
+          displayName: "iPhone (foreground)",
+          platform: "iOS 26.4.0",
+          clientId: "openclaw-ios",
+          clientMode: "node",
+          roles: ["operator"],
+          approvedAtMs: 1,
+        },
+        currentIos: {
+          deviceId: "currentIos",
+          displayName: "iPhone",
+          platform: "iOS 26.4.1",
+          clientId: "openclaw-ios",
+          clientMode: "node",
+          roles: ["operator", "node"],
+          approvedAtMs: now,
+        },
+      }, null, 2));
+
+      await invokeMethod(api, "betterclaw.ping", { tier: "premium", smartMode: true }, {
+        hasConnectedMobileNode: () => true,
+        nodeRegistry: {
+          listConnected: () => [{
+            nodeId: "currentIos",
+            clientId: "openclaw-ios",
+            platform: "iOS",
+            deviceFamily: "iPhone",
+            modelIdentifier: "iPhone16,2",
+            commands: ["location.get", "health.steps"],
+            connectedAtMs: now,
+          }],
+        },
+      });
+
+      const paired = JSON.parse(await fs.readFile(pairedPath, "utf8"));
+      const devices = JSON.parse(await fs.readFile(devicesPath, "utf8"));
+      expect(paired.staleIos).toBeUndefined();
+      expect(paired.currentIos).toBeTruthy();
+      expect(paired.macNode).toBeTruthy();
+      expect(devices.oldIosDevice).toBeUndefined();
+      expect(devices.foregroundOnlyDevice).toBeTruthy();
+      expect(devices.currentIos).toBeTruthy();
     });
   });
 
