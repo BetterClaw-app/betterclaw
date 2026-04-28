@@ -113,6 +113,7 @@
 | `learn.error` | `error` | — |
 | `learn.triggered` | `info` | — |
 | `logs.error` | `error` | — |
+| `node.hygiene` | `info` | — |
 | `ping.received` | `info` | — |
 | `shortcut.delivered` | `info` | `commandId`, `ok`, `status` |
 | `shortcut.error` | `error` | — |

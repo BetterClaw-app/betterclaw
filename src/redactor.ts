@@ -108,6 +108,7 @@ export const MANIFEST: {
       exportCategory: "lifecycle",
       events: {
         "ping.received":     { level: "info",    requiredKeys: [] },
+        "node.hygiene":      { level: "info",    requiredKeys: [] },
         "config.applied":    { level: "info",    requiredKeys: ["changedFields"] },
         "config.error":      { level: "error",   requiredKeys: [] },
         "context.served":    { level: "info",    requiredKeys: ["tier"] },
