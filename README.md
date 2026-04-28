@@ -7,9 +7,9 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@betterclaw-app/betterclaw"><img src="https://img.shields.io/npm/v/@betterclaw-app/betterclaw?style=flat-square&color=blue" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@better_openclaw/betterclaw"><img src="https://img.shields.io/npm/v/@better_openclaw/betterclaw?style=flat-square&color=blue" alt="npm version" /></a>
   <a href="https://github.com/BetterClaw-app/betterclaw/blob/main/LICENSE"><img src="https://img.shields.io/github/license/BetterClaw-app/betterclaw?style=flat-square" alt="license" /></a>
-  <a href="https://www.npmjs.com/package/@betterclaw-app/betterclaw"><img src="https://img.shields.io/npm/dm/@betterclaw-app/betterclaw?style=flat-square&color=green" alt="downloads" /></a>
+  <a href="https://www.npmjs.com/package/@better_openclaw/betterclaw"><img src="https://img.shields.io/npm/dm/@better_openclaw/betterclaw?style=flat-square&color=green" alt="downloads" /></a>
   <a href="https://openclaw.dev"><img src="https://img.shields.io/badge/platform-OpenClaw-orange?style=flat-square" alt="OpenClaw" /></a>
 </p>
 
@@ -41,6 +41,7 @@ The plugin differentiates between **free** and **premium** tiers:
 - **Device Context** — Rolling state snapshot with per-field timestamps and `dataAgeSeconds`: GPS, zone occupancy, health metrics, activity classification.
 - **Pattern Recognition** — Daily analysis computes location routines, health trends (7d/30d baselines), and event frequency stats.
 - **Per-Device Config** — iOS app can override push budget at runtime via RPC.
+- **Shortcuts Result Bridge** — Receives BetterClaw Runner callback results from iOS and can deliver late shortcut results back into the active agent session.
 - **Agent Tools** — `check_tier` for routing decisions, `get_context` for patterns/trends/cached state.
 - **CLI Setup** — `openclaw betterclaw setup` configures gateway allowedCommands automatically.
 
@@ -52,8 +53,22 @@ The plugin differentiates between **free** and **premium** tiers:
 ## Install
 
 ```bash
-openclaw plugins install @betterclaw-app/betterclaw
+openclaw plugins install @better_openclaw/betterclaw
 openclaw betterclaw setup   # configures gateway allowedCommands
+```
+
+## Update
+
+To update an existing install to the latest stable release:
+
+```bash
+openclaw plugins update betterclaw
+```
+
+Preview the change first:
+
+```bash
+openclaw plugins update betterclaw --dry-run
 ```
 
 ## Configure
@@ -127,6 +142,8 @@ Every device event from the BetterClaw app goes through the plugin:
 | `betterclaw.context` | iOS -> plugin | Full context for iOS Context tab (includes `calibrating` flag) |
 | `betterclaw.snapshot` | iOS -> plugin | Bulk device state catch-up |
 | `betterclaw.learn` | iOS -> plugin | Trigger on-demand triage profile learning |
+| `betterclaw.logs` | iOS -> plugin | Paginated diagnostic log export |
+| `betterclaw.shortcutResult` | iOS -> plugin | Async Shortcuts runner result callback |
 
 ## Commands
 
