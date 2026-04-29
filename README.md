@@ -56,6 +56,7 @@ The plugin differentiates between **free** and **premium** tiers:
 ```bash
 openclaw plugins install @better_openclaw/betterclaw
 openclaw betterclaw setup   # configures gateway commands/tools and prompts for TOOLS.md profile sync
+openclaw gateway restart    # apply config changes when setup reports changes
 ```
 
 Non-interactive setup scripts should pass an explicit profile choice:
@@ -82,12 +83,22 @@ To update an existing install to the latest stable release:
 
 ```bash
 openclaw plugins update betterclaw
+openclaw betterclaw setup
+openclaw gateway restart    # apply config changes when setup reports changes
 ```
 
 Preview the change first:
 
 ```bash
 openclaw plugins update betterclaw --dry-run
+```
+
+To opt into the current dev prerelease:
+
+```bash
+openclaw plugins update @better_openclaw/betterclaw@dev
+openclaw betterclaw setup
+openclaw gateway restart    # apply config changes when setup reports changes
 ```
 
 ## Configure
