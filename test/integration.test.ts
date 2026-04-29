@@ -3,6 +3,8 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import zlib from "node:zlib";
 import { makeTmpDir } from "./helpers.js";
+import { readConfigFileSnapshotForWrite } from "openclaw/plugin-sdk/config-runtime";
+import { BETTERCLAW_COMMANDS } from "../src/cli.js";
 
 // Module-level mocks — must be before imports that use them
 vi.mock("../src/pipeline.js", () => ({
@@ -25,11 +27,20 @@ vi.mock("../src/jwt.js", () => ({
   storeJwt: vi.fn().mockResolvedValue(null),
 }));
 
+vi.mock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
+  const original = await importOriginal<typeof import("openclaw/plugin-sdk/config-runtime")>();
+  return {
+    ...original,
+    readConfigFileSnapshotForWrite: vi.fn(),
+  };
+});
+
 vi.mock("../src/diagnostic-logger.js", () => {
-  const scopedLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const scopedLogger = { info: vi.fn(), warn: vi.fn(), warning: vi.fn(), error: vi.fn() };
   const logger = {
     info: vi.fn(),
     warn: vi.fn(),
+    warning: vi.fn(),
     error: vi.fn(),
     debug: vi.fn(),
     scoped: vi.fn(() => scopedLogger),
@@ -39,7 +50,7 @@ vi.mock("../src/diagnostic-logger.js", () => {
   };
   return {
     initDiagnosticLogger: vi.fn(() => logger),
-    dlog: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+    dlog: { info: vi.fn(), warn: vi.fn(), warning: vi.fn(), error: vi.fn(), debug: vi.fn() },
   };
 });
 
@@ -135,6 +146,10 @@ describe("plugin registration", () => {
 
   beforeEach(async () => {
     tmpDir = await makeTmpDir("integration-");
+    vi.mocked(readConfigFileSnapshotForWrite).mockResolvedValue({
+      snapshot: { config: {} } as any,
+      writeOptions: {},
+    });
   });
 
   afterEach(async () => {
@@ -155,6 +170,8 @@ describe("plugin registration", () => {
     const services: Array<{ id: string; start: Function; stop: Function }> = [];
     let toolCount = 0;
     let cliCount = 0;
+    let cliRegistrar: Function | undefined;
+    let cliOptions: any;
 
     return {
       pluginConfig: undefined as Record<string, unknown> | undefined,
@@ -166,6 +183,9 @@ describe("plugin registration", () => {
         config: {
           loadConfig: vi.fn().mockResolvedValue({}),
           writeConfigFile: vi.fn().mockResolvedValue(undefined),
+        },
+        agent: {
+          resolveAgentWorkspaceDir: vi.fn((_cfg: any, _agentId: string) => path.join(tmpDir, "workspace")),
         },
         subagent: {
           run: vi.fn().mockResolvedValue({ runId: "test" }),
@@ -189,8 +209,10 @@ describe("plugin registration", () => {
       registerTool: vi.fn(() => {
         toolCount++;
       }),
-      registerCli: vi.fn(() => {
+      registerCli: vi.fn((registrar: Function, opts?: any) => {
         cliCount++;
+        cliRegistrar = registrar;
+        cliOptions = opts;
       }),
       // Expose captured registrations for assertions
       _gatewayMethods: gatewayMethods,
@@ -198,6 +220,8 @@ describe("plugin registration", () => {
       _services: services,
       get _toolCount() { return toolCount; },
       get _cliCount() { return cliCount; },
+      get _cliRegistrar() { return cliRegistrar; },
+      get _cliOptions() { return cliOptions; },
     };
   }
 
@@ -242,6 +266,24 @@ describe("plugin registration", () => {
 
     // 1 CLI registration
     expect(api.registerCli).toHaveBeenCalledTimes(1);
+    expect(api._cliOptions).toEqual({
+      commands: ["betterclaw"],
+      descriptors: [{ name: "betterclaw", description: "BetterClaw plugin management", hasSubcommands: true }],
+    });
+  });
+
+  it("registers CLI metadata without full runtime helpers", () => {
+    const api = {
+      registrationMode: "cli-metadata",
+      registerCli: vi.fn(),
+    };
+
+    expect(() => plugin.register(api as any)).not.toThrow();
+    expect(api.registerCli).toHaveBeenCalledTimes(1);
+    expect(api.registerCli.mock.calls[0][1]).toEqual({
+      commands: ["betterclaw"],
+      descriptors: [{ name: "betterclaw", description: "BetterClaw plugin management", hasSubcommands: true }],
+    });
   });
 
   // Helper: register plugin and return the API with settled async init
@@ -280,6 +322,186 @@ describe("plugin registration", () => {
     await handler({ params, respond, context });
     return response!;
   }
+
+  function captureSetupAction(api: ReturnType<typeof mockApi>) {
+    let action: Function | undefined;
+    const setupCommand = {
+      description: vi.fn(() => setupCommand),
+      option: vi.fn(() => setupCommand),
+      action: vi.fn((handler: Function) => {
+        action = handler;
+        return setupCommand;
+      }),
+    };
+    const rootCommand = {
+      description: vi.fn(() => rootCommand),
+      command: vi.fn(() => setupCommand),
+    };
+    const program = {
+      command: vi.fn(() => rootCommand),
+    };
+
+    api._cliRegistrar?.({ program });
+    if (!action) throw new Error("betterclaw setup action was not registered");
+    return { action, setupCommand, rootCommand, program };
+  }
+
+  describe("betterclaw setup CLI", () => {
+    it("registers setup options for profile maintenance", async () => {
+      const api = await registerPlugin();
+      const { setupCommand, program, rootCommand } = captureSetupAction(api);
+
+      expect(program.command).toHaveBeenCalledWith("betterclaw");
+      expect(rootCommand.command).toHaveBeenCalledWith("setup");
+      expect(setupCommand.option.mock.calls.map((call) => call[0])).toEqual(expect.arrayContaining([
+        "--dry-run",
+        "--yes",
+        "--agent-profile <mode>",
+        "--workspace <path>",
+      ]));
+    });
+
+    it("does not write config or TOOLS.md in dry-run mode", async () => {
+      const api = await registerPlugin();
+      const { action } = captureSetupAction(api);
+      const workspace = path.join(tmpDir, "workspace");
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        await action({ dryRun: true, agentProfile: "yes", workspace });
+      } finally {
+        logSpy.mockRestore();
+      }
+
+      expect(api.runtime.config.writeConfigFile).not.toHaveBeenCalled();
+      await expect(fs.readFile(path.join(workspace, "TOOLS.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
+    it("does not sync an existing enabled profile during dry-run setup", async () => {
+      const workspace = path.join(tmpDir, "workspace");
+      await fs.mkdir(tmpDir, { recursive: true });
+      await fs.writeFile(path.join(tmpDir, "agent-profile.json"), `${JSON.stringify({
+        enabled: true,
+        workspaceDir: workspace,
+        toolsFile: path.join(workspace, "TOOLS.md"),
+        lastActiveNodeId: null,
+        lastTier: null,
+        lastFactsKey: null,
+        lastSyncAt: null,
+      }, null, 2)}\n`);
+
+      const api = await registerPlugin();
+      const { action } = captureSetupAction(api);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        await action({ dryRun: true, agentProfile: "yes", workspace });
+      } finally {
+        logSpy.mockRestore();
+      }
+
+      expect(api.runtime.config.writeConfigFile).not.toHaveBeenCalled();
+      await expect(fs.readFile(path.join(workspace, "TOOLS.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
+    it("writes config when duplicate existing entries hide missing commands by length", async () => {
+      const existingCommands = [
+        ...BETTERCLAW_COMMANDS.filter((command) => command !== "system.notify"),
+        "location.get",
+      ];
+      vi.mocked(readConfigFileSnapshotForWrite).mockResolvedValue({
+        snapshot: {
+          sourceConfig: {
+            gateway: { nodes: { allowCommands: existingCommands } },
+            tools: { alsoAllow: ["check_tier", "check_tier", "get_context"] },
+          },
+          runtimeConfig: {
+            gateway: { nodes: { allowCommands: existingCommands } },
+            tools: { alsoAllow: ["check_tier", "check_tier", "get_context"] },
+          },
+          config: {
+            gateway: { nodes: { allowCommands: existingCommands } },
+            tools: { alsoAllow: ["check_tier", "check_tier", "get_context"] },
+          },
+        } as any,
+        writeOptions: {},
+      });
+      const api = await registerPlugin();
+      const { action } = captureSetupAction(api);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        await action({ agentProfile: "no", workspace: path.join(tmpDir, "workspace") });
+      } finally {
+        logSpy.mockRestore();
+      }
+
+      expect(api.runtime.config.writeConfigFile).toHaveBeenCalledTimes(1);
+      const written = api.runtime.config.writeConfigFile.mock.calls[0][0];
+      expect(written.gateway.nodes.allowCommands).toContain("system.notify");
+      expect(written.gateway.nodes.allowCommands.filter((command: string) => command === "location.get")).toHaveLength(1);
+      expect(written.tools.alsoAllow).toContain("edit_routing_rules");
+      expect(written.tools.alsoAllow.filter((tool: string) => tool === "check_tier")).toHaveLength(1);
+    });
+
+    it("can disable generated agent profile maintenance", async () => {
+      const api = await registerPlugin();
+      const { action } = captureSetupAction(api);
+      const workspace = path.join(tmpDir, "workspace");
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        await action({ agentProfile: "no", workspace });
+      } finally {
+        logSpy.mockRestore();
+      }
+
+      await invokeMethod(api, "betterclaw.ping", { tier: "premium", smartMode: true }, {
+        hasConnectedMobileNode: () => true,
+        nodeRegistry: {
+          listConnected: () => [{
+            nodeId: "currentIos",
+            clientId: "openclaw-ios",
+            platform: "iOS",
+            deviceFamily: "iPhone",
+            commands: ["location.get"],
+            connectedAtMs: Date.now(),
+          }],
+        },
+      });
+
+      const state = JSON.parse(await fs.readFile(path.join(tmpDir, "agent-profile.json"), "utf8"));
+      expect(state.enabled).toBe(false);
+      await expect(fs.readFile(path.join(workspace, "TOOLS.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    });
+
+    it("updates TOOLS.md with tier and active node id on ping", async () => {
+      const api = await registerPlugin();
+      const { action } = captureSetupAction(api);
+      const workspace = path.join(tmpDir, "workspace");
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      try {
+        await action({ agentProfile: "yes", workspace });
+      } finally {
+        logSpy.mockRestore();
+      }
+
+      await invokeMethod(api, "betterclaw.ping", { tier: "premium", smartMode: true }, {
+        hasConnectedMobileNode: () => true,
+        nodeRegistry: {
+          listConnected: () => [{
+            nodeId: "currentIos",
+            clientId: "openclaw-ios",
+            platform: "iOS",
+            deviceFamily: "iPhone",
+            commands: ["location.get"],
+            connectedAtMs: 10,
+          }],
+        },
+      });
+
+      const tools = await fs.readFile(path.join(workspace, "TOOLS.md"), "utf8");
+      expect(tools).toContain("Tier: premium");
+      expect(tools).toContain("Active node: currentIos");
+      expect(tools).toContain("call `location.get` on the active BetterClaw node");
+    });
+  });
 
   // -------------------------------------------------------------------------
   // betterclaw.ping

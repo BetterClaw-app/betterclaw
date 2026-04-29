@@ -42,20 +42,39 @@ The plugin differentiates between **free** and **premium** tiers:
 - **Pattern Recognition** — Daily analysis computes location routines, health trends (7d/30d baselines), and event frequency stats.
 - **Per-Device Config** — iOS app can override push budget at runtime via RPC.
 - **Shortcuts Result Bridge** — Receives BetterClaw Runner callback results from iOS and can deliver late shortcut results back into the active agent session.
-- **Agent Tools** — `check_tier` for routing decisions, `get_context` for patterns/trends/cached state.
-- **CLI Setup** — `openclaw betterclaw setup` configures gateway allowedCommands automatically.
+- **Agent Tools** — `check_tier` for routing decisions, `get_context` for patterns/trends/cached state, and `edit_routing_rules` for Smart Mode routing policy edits.
+- **Agent Profile Sync** — Optional generated `TOOLS.md` block with current tier, active node ID, and fast-path examples. The plugin updates only its marked block and skips unchanged writes.
+- **CLI Setup** — `openclaw betterclaw setup` configures gateway allowedCommands, tool allow-list entries, and optional agent profile maintenance automatically.
 
 ## Requirements
 
 - [BetterClaw iOS app](https://github.com/BetterClaw-app/BetterClaw-ios) installed and connected to your gateway
-- [OpenClaw](https://openclaw.dev) gateway (2025.12+)
+- [OpenClaw](https://openclaw.dev) gateway (2026.4.14+)
 
 ## Install
 
 ```bash
 openclaw plugins install @better_openclaw/betterclaw
-openclaw betterclaw setup   # configures gateway allowedCommands
+openclaw betterclaw setup   # configures gateway commands/tools and prompts for TOOLS.md profile sync
 ```
+
+Non-interactive setup scripts should pass an explicit profile choice:
+
+```bash
+openclaw betterclaw setup --agent-profile yes
+openclaw betterclaw setup --agent-profile no
+openclaw betterclaw setup --dry-run --agent-profile yes
+```
+
+When enabled, the plugin maintains this generated range inside the default agent workspace `TOOLS.md`:
+
+```md
+<!-- betterclaw-device-profile:start v1 -->
+...
+<!-- betterclaw-device-profile:end -->
+```
+
+The block includes tier, active BetterClaw iOS node ID, recommended data path, and examples for location, health, and shortcut requests.
 
 ## Update
 
@@ -131,6 +150,7 @@ Every device event from the BetterClaw app goes through the plugin:
 |------|---------|
 | `check_tier` | Returns tier + routing instructions + cache TTL. No device data. Call first. |
 | `get_context` | Returns patterns, trends, zone state, cached device snapshots with `dataAgeSeconds`. |
+| `edit_routing_rules` | Reads or updates Smart Mode routing rules with audit logging. |
 
 ### Gateway RPCs
 
@@ -155,7 +175,7 @@ Every device event from the BetterClaw app goes through the plugin:
 
 | Plugin | BetterClaw iOS | OpenClaw |
 |--------|----------------|----------|
-| 3.x    | 2.x+           | 2025.12+ |
+| 3.x    | 2.x+           | 2026.4.14+ |
 | 2.x    | 2.x+           | 2025.12+ |
 | 1.x    | 1.x            | 2025.12+ |
 

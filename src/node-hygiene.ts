@@ -47,8 +47,16 @@ function hasBetterClawCommandShape(node: MaybeNode): boolean {
   return commands.some((command) => BETTERCLAW_COMMAND_SET.has(command));
 }
 
+function isCommandCapableBetterClawNode(node: MaybeNode): boolean {
+  return hasBetterClawCommandShape(node)
+    || stringArray(node.roles).includes("node")
+    || stringValue(node.clientMode) === "node";
+}
+
 function isConnectedBetterClawIosNode(node: MaybeNode): boolean {
-  return stringValue(node.clientId) === BETTERCLAW_IOS_CLIENT_ID && isIosLike(node);
+  return stringValue(node.clientId) === BETTERCLAW_IOS_CLIENT_ID
+    && isIosLike(node)
+    && isCommandCapableBetterClawNode(node);
 }
 
 function isPairedBetterClawIosNode(node: MaybeNode): boolean {
@@ -87,6 +95,17 @@ function isPastGracePeriod(candidate: MaybeNode, newestConnectedAtMs: number): b
     numberValue(candidate.createdAtMs) ?? 0,
   );
   return lastSeen === 0 || lastSeen < newestConnectedAtMs - STALE_NODE_GRACE_MS;
+}
+
+export function resolveActiveBetterClawIosNodeId(connectedNodes: MaybeNode[]): string | null {
+  const candidates = connectedNodes
+    .filter(isConnectedBetterClawIosNode)
+    .map((node) => ({ id: nodeIdFor(node), connectedAtMs: numberValue(node.connectedAtMs) ?? 0 }))
+    .filter((candidate): candidate is { id: string; connectedAtMs: number } => Boolean(candidate.id));
+
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => b.connectedAtMs - a.connectedAtMs);
+  return candidates[0].id;
 }
 
 async function readPairingFile(filePath: string): Promise<Record<string, MaybeNode> | null> {

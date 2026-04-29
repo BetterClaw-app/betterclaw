@@ -45,6 +45,7 @@
 |---|---|---|
 | `learner.completed` | `info` | `durationMs` |
 | `learner.failed` | `error` | — |
+| `learner.skipped` | `info` | — |
 | `learner.started` | `info` | `eventsCount`, `reactionsCount`, `hasMemory`, `hasPreviousProfile` |
 | `parse.failed` | `warning` | — |
 | `profile.updated` | `info` | `interruptionTolerance` |

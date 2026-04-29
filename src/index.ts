@@ -1,10 +1,12 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { readConfigFileSnapshotForWrite, resolveDefaultAgentId } from "openclaw/plugin-sdk/config-runtime";
 import type { PluginConfig, DeviceConfig } from "./types.js";
 import { errorMessage } from "./types.js";
 import { errorFields } from "./errors.js";
 import { initDiagnosticLogger } from "./diagnostic-logger.js";
 import { handleLogsRpc, resolveAnonymizationKey, type LogsRpcParams } from "./logs-rpc.js";
 import { randomBytes } from "node:crypto";
+import { createInterface } from "node:readline/promises";
 import { ContextManager } from "./context.js";
 import { createGetContextTool } from "./tools/get-context.js";
 import { EventLog } from "./events.js";
@@ -12,7 +14,14 @@ import { RulesEngine } from "./filter.js";
 import { PatternEngine } from "./patterns.js";
 import { processEvent } from "./pipeline.js";
 import type { PipelineDeps } from "./pipeline.js";
-import { BETTERCLAW_COMMANDS, BETTERCLAW_TOOLS, mergeAllowCommands, mergeAlsoAllow } from "./cli.js";
+import {
+  BETTERCLAW_COMMANDS,
+  BETTERCLAW_TOOLS,
+  mergeAllowCommands,
+  mergeAlsoAllow,
+  normalizeAgentProfileMode,
+  resolveAgentProfileConsent,
+} from "./cli.js";
 import { storeJwt } from "./jwt.js";
 import { runLearner } from "./learner.js";
 import { ReactionTracker } from "./reactions.js";
@@ -21,8 +30,8 @@ import { scanPendingReactions } from "./reaction-scanner.js";
 import { RoutingConfigStore } from "./routing/config-store.js";
 import { AuditLog } from "./routing/audit-log.js";
 import { createEditRoutingRulesTool } from "./tools/edit-routing-rules.js";
-import { pruneStaleBetterClawIosNodes } from "./node-hygiene.js";
-import * as os from "node:os";
+import { pruneStaleBetterClawIosNodes, resolveActiveBetterClawIosNodeId } from "./node-hygiene.js";
+import { AgentProfileManager, type SyncProfileInput } from "./agent-profile.js";
 import * as path from "node:path";
 
 export type { PluginConfig } from "./types.js";
@@ -30,6 +39,14 @@ export type { PluginConfig } from "./types.js";
 const DEFAULT_COOLDOWNS: Record<string, number> = {
   "default.daily-health": 82800,
   "default.geofence": 300,
+};
+
+const AGENT_PROFILE_SYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
+const PLUGIN_VERSION = "3.6.0-dev.0";
+
+const BETTERCLAW_CLI_OPTIONS = {
+  commands: ["betterclaw"],
+  descriptors: [{ name: "betterclaw", description: "BetterClaw plugin management", hasSubcommands: true }],
 };
 
 const DEFAULT_CONFIG: PluginConfig = {
@@ -62,11 +79,29 @@ export function resolveConfig(raw: Record<string, unknown> | undefined): PluginC
   };
 }
 
+function cloneConfigForWrite(config: unknown): any {
+  return JSON.parse(JSON.stringify(config ?? {}));
+}
+
+function arraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 export default {
   id: "betterclaw",
   name: "BetterClaw Context",
 
   register(api: OpenClawPluginApi) {
+    if ((api as { registrationMode?: string }).registrationMode === "cli-metadata") {
+      api.registerCli(
+        ({ program }) => {
+          program.command("betterclaw").description("BetterClaw plugin management");
+        },
+        BETTERCLAW_CLI_OPTIONS,
+      );
+      return;
+    }
+
     const config = resolveConfig(api.pluginConfig as Record<string, unknown> | undefined);
     const stateDir = api.runtime.state.resolveStateDir();
     const diagnosticLogger = initDiagnosticLogger(path.join(stateDir, "logs"), api.logger);
@@ -76,6 +111,7 @@ export default {
 
     // Context manager (load synchronously — file read deferred to first access)
     const ctxManager = new ContextManager(stateDir, diagnosticLogger.scoped("plugin.context"));
+    const agentProfile = new AgentProfileManager(stateDir);
 
     // Event log, rules engine, reaction tracker
     const eventLog = new EventLog(stateDir, diagnosticLogger.scoped("plugin.events"));
@@ -99,11 +135,62 @@ export default {
       audit: auditLog,
     };
 
-    const pluginVersion = "2.0.0";
-
     // Track whether async init has completed
     let initialized = false;
     let learnerRunning = false;
+    let agentProfileTimer: ReturnType<typeof setInterval> | undefined;
+    const resolveCurrentAgentWorkspaceDir = async (): Promise<string> => {
+      const runtimeConfig = await api.runtime.config.loadConfig();
+      const agentId = resolveDefaultAgentId(runtimeConfig);
+      return api.runtime.agent.resolveAgentWorkspaceDir(runtimeConfig, agentId);
+    };
+    const runLearnerIfIdle = async (): Promise<{ ok: true; durationMs: number } | { ok: false; error: string }> => {
+      if (learnerRunning) return { ok: false, error: "already-running" };
+
+      learnerRunning = true;
+      const startedAt = Date.now();
+      try {
+        await runLearner({
+          stateDir,
+          workspaceDir: await resolveCurrentAgentWorkspaceDir(),
+          context: ctxManager,
+          events: eventLog,
+          reactions: reactionTracker,
+          api,
+          routing: routingStore,
+          audit: auditLog,
+        });
+        return { ok: true, durationMs: Date.now() - startedAt };
+      } catch (err) {
+        return { ok: false, error: errorMessage(err) };
+      } finally {
+        learnerRunning = false;
+      }
+    };
+    const syncAgentProfile = async (
+      source: string,
+      input: { tier?: "free" | "premium" | null; activeNodeId?: string | null; now?: Date } = {},
+    ) => {
+      try {
+        const runtime = ctxManager.getRuntimeState();
+        const syncInput: SyncProfileInput = {
+          tier: input.tier ?? runtime.tier,
+          now: input.now,
+        };
+        if (Object.prototype.hasOwnProperty.call(input, "activeNodeId")) {
+          syncInput.activeNodeId = input.activeNodeId ?? null;
+        }
+        const result = await agentProfile.sync(syncInput);
+        if (result.changed) {
+          diagnosticLogger.info(source, "profile.sync", "agent profile updated", {
+            tier: input.tier ?? runtime.tier,
+            activeNodeId: input.activeNodeId ?? null,
+          });
+        }
+      } catch (err) {
+        diagnosticLogger.warning(source, "profile.sync.failed", "agent profile sync failed", errorFields(err));
+      }
+    };
     const initStart = Date.now();
     const initPromise = (async () => {
       try {
@@ -165,8 +252,12 @@ export default {
 
       ctxManager.setRuntimeState({ tier, smartMode, ...(tz ? { tz } : {}) });
 
+      const connectedNodes = context.nodeRegistry.listConnected();
+      const activeNodeId = resolveActiveBetterClawIosNodeId(connectedNodes);
+      await syncAgentProfile("plugin.profile", { tier, activeNodeId });
+
       try {
-        const result = await pruneStaleBetterClawIosNodes(stateDir, context.nodeRegistry.listConnected());
+        const result = await pruneStaleBetterClawIosNodes(stateDir, connectedNodes);
         const pruned = result.prunedNodeIds.length + result.prunedDeviceIds.length;
         if (pruned > 0) {
           diagnosticLogger.info("plugin.rpc", "node.hygiene", "pruned stale BetterClaw iOS nodes", {
@@ -184,7 +275,7 @@ export default {
       const effectiveBudget = ctxManager.getDeviceConfig().pushBudgetPerDay ?? config.pushBudgetPerDay;
       respond(true, {
         ok: true,
-        version: pluginVersion,
+        version: PLUGIN_VERSION,
         initialized,
         pushesToday: meta.pushesToday,
         budgetRemaining: Math.max(0, effectiveBudget - meta.pushesToday),
@@ -301,29 +392,13 @@ export default {
         diagnosticLogger.info("plugin.rpc", "learn.triggered", "learn RPC triggered");
         if (!initialized) await initPromise;
 
-        if (learnerRunning) {
-          respond(true, { ok: false, error: "already-running" });
-          return;
-        }
-
-        learnerRunning = true;
-        try {
-          await runLearner({
-            stateDir,
-            workspaceDir: path.join(os.homedir(), ".openclaw", "workspace"),
-            context: ctxManager,
-            events: eventLog,
-            reactions: reactionTracker,
-            api,
-            routing: routingStore,
-            audit: auditLog,
-          });
+        const result = await runLearnerIfIdle();
+        if (result.ok) {
           respond(true, { ok: true, summary: "learner tuned routing rules" });
-        } finally {
-          learnerRunning = false;
+        } else {
+          respond(true, { ok: false, error: result.error });
         }
       } catch (err) {
-        learnerRunning = false;
         const msg = errorMessage(err);
         diagnosticLogger.error("plugin.rpc", "learn.error", "learn RPC failed", { ...errorFields(err) });
         respond(true, { ok: false, error: msg });
@@ -537,6 +612,7 @@ export default {
     api.registerService({
       id: "betterclaw-engine",
       start: () => {
+        void initPromise.then(() => syncAgentProfile("plugin.profile"));
         patternEngine.startSchedule(config.analysisHour, async () => {
           await diagnosticLogger.rotate();
 
@@ -548,27 +624,33 @@ export default {
             }
 
             try {
-              const learnerStart = Date.now();
-              await runLearner({
-                stateDir,
-                workspaceDir: path.join(os.homedir(), ".openclaw", "workspace"),
-                context: ctxManager,
-                events: eventLog,
-                reactions: reactionTracker,
-                api,
-                routing: routingStore,
-                audit: auditLog,
-              });
-              diagnosticLogger.info("plugin.learner", "learner.completed", "daily learner completed", { durationMs: Date.now() - learnerStart });
+              const result = await runLearnerIfIdle();
+              if (result.ok) {
+                diagnosticLogger.info("plugin.learner", "learner.completed", "daily learner completed", { durationMs: result.durationMs });
+              } else if (result.error === "already-running") {
+                diagnosticLogger.info("plugin.learner", "learner.skipped", "daily learner skipped because another learner is running");
+              } else {
+                diagnosticLogger.error("plugin.learner", "learner.failed", "daily learner failed", { error: result.error });
+              }
             } catch (err) {
               diagnosticLogger.error("plugin.learner", "learner.failed", "daily learner failed", errorFields(err));
             }
           }
         });
+        if (!agentProfileTimer) {
+          agentProfileTimer = setInterval(() => {
+            void syncAgentProfile("plugin.profile");
+          }, AGENT_PROFILE_SYNC_INTERVAL_MS);
+          agentProfileTimer.unref?.();
+        }
         diagnosticLogger.info("plugin.service", "started", "background services started", { analysisHour: config.analysisHour });
       },
       stop: () => {
         patternEngine.stopSchedule();
+        if (agentProfileTimer) {
+          clearInterval(agentProfileTimer);
+          agentProfileTimer = undefined;
+        }
         diagnosticLogger.info("plugin.service", "stopped", "background services stopped");
       },
     });
@@ -580,61 +662,111 @@ export default {
 
         cmd
           .command("setup")
-          .description("Configure gateway allowedCommands and agent tools for BetterClaw")
+          .description("Configure gateway allowedCommands, agent tools, and optional TOOLS.md profile for BetterClaw")
           .option("--dry-run", "Preview changes without writing")
-          .action(async (opts: { dryRun?: boolean }) => {
+          .option("--yes", "Accept the default prompt answer for generated agent profile setup")
+          .option("--agent-profile <mode>", "Maintain a generated TOOLS.md device profile: yes, no, or prompt", "prompt")
+          .option("--workspace <path>", "Workspace directory containing the agent TOOLS.md file")
+          .action(async (opts: { dryRun?: boolean; yes?: boolean; agentProfile?: string; workspace?: string }) => {
             try {
-              const currentConfig = await api.runtime.config.loadConfig();
-              const configObj = { ...currentConfig } as any;
+              const { snapshot, writeOptions } = await readConfigFileSnapshotForWrite();
+              const snapshotObj = snapshot as {
+                config?: Record<string, unknown>;
+                sourceConfig?: Record<string, unknown>;
+                runtimeConfig?: Record<string, unknown>;
+              };
+              const sourceConfig = snapshotObj.sourceConfig ?? snapshotObj.config ?? {};
+              const runtimeConfig = snapshotObj.runtimeConfig ?? snapshotObj.config ?? sourceConfig;
+              const configObj = cloneConfigForWrite(sourceConfig);
 
               // 1. Merge node allowedCommands
-              const existingCmds: string[] = configObj?.gateway?.nodes?.allowCommands ?? [];
+              const existingCmds: string[] = Array.isArray(configObj?.gateway?.nodes?.allowCommands)
+                ? configObj.gateway.nodes.allowCommands
+                : [];
               const mergedCmds = mergeAllowCommands(existingCmds, BETTERCLAW_COMMANDS);
-              const addedCmds = mergedCmds.length - existingCmds.length;
+              const missingCmds = BETTERCLAW_COMMANDS.filter((command) => !existingCmds.includes(command));
+              const commandsChanged = !arraysEqual(existingCmds, mergedCmds);
 
               // 2. Merge tools.alsoAllow for plugin tools
               configObj.tools = configObj.tools ?? {};
-              const existingAllow: string[] = configObj.tools.alsoAllow ?? [];
+              const existingAllow: string[] = Array.isArray(configObj.tools.alsoAllow) ? configObj.tools.alsoAllow : [];
               const mergedAllow = mergeAlsoAllow(existingAllow, BETTERCLAW_TOOLS);
-              const addedTools = mergedAllow.length - existingAllow.length;
+              const missingTools = BETTERCLAW_TOOLS.filter((tool) => !existingAllow.includes(tool));
+              const toolsChanged = !arraysEqual(existingAllow, mergedAllow);
+
+              const profileMode = normalizeAgentProfileMode(opts.agentProfile ?? "prompt");
+              const profileEnabled = await resolveAgentProfileConsent({
+                mode: profileMode,
+                yes: opts.yes === true,
+                isTTY: process.stdin.isTTY === true && process.stdout.isTTY === true,
+                ask: async () => {
+                  const rl = createInterface({ input: process.stdin, output: process.stdout });
+                  try {
+                    const answer = await rl.question("Let BetterClaw maintain a generated TOOLS.md device profile? [Y/n] ");
+                    return !answer.trim().toLowerCase().startsWith("n");
+                  } finally {
+                    rl.close();
+                  }
+                },
+              });
+              const agentId = resolveDefaultAgentId(runtimeConfig);
+              const workspaceDir = opts.workspace
+                ? path.resolve(opts.workspace)
+                : api.runtime.agent.resolveAgentWorkspaceDir(runtimeConfig, agentId);
+              const toolsFile = path.join(workspaceDir, "TOOLS.md");
 
               if (opts.dryRun) {
-                if (addedCmds > 0) {
-                  const newCmds = mergedCmds.filter((c) => !existingCmds.includes(c));
-                  console.log(`[dry-run] Would add ${addedCmds} node commands: ${newCmds.join(", ")}`); // schema-lint: allow-console
+                if (missingCmds.length > 0) {
+                  console.log(`[dry-run] Would add ${missingCmds.length} node commands: ${missingCmds.join(", ")}`); // schema-lint: allow-console
+                } else if (commandsChanged) {
+                  console.log("[dry-run] Would normalize duplicate node command entries."); // schema-lint: allow-console
                 }
-                if (addedTools > 0) {
-                  const newTools = mergedAllow.filter((t) => !existingAllow.includes(t));
-                  console.log(`[dry-run] Would add ${addedTools} agent tools to alsoAllow: ${newTools.join(", ")}`); // schema-lint: allow-console
+                if (missingTools.length > 0) {
+                  console.log(`[dry-run] Would add ${missingTools.length} agent tools to alsoAllow: ${missingTools.join(", ")}`); // schema-lint: allow-console
+                } else if (toolsChanged) {
+                  console.log("[dry-run] Would normalize duplicate agent tool allow-list entries."); // schema-lint: allow-console
                 }
-                if (addedCmds === 0 && addedTools === 0) {
+                if (!commandsChanged && !toolsChanged) {
                   console.log("[dry-run] Everything already configured."); // schema-lint: allow-console
                 }
+                console.log(`[dry-run] Agent profile maintenance: ${profileEnabled ? `enabled for ${toolsFile}` : "disabled"}.`); // schema-lint: allow-console
                 return;
               }
 
-              if (addedCmds === 0 && addedTools === 0) {
+              if (commandsChanged || toolsChanged) {
+                configObj.gateway = configObj.gateway ?? {};
+                configObj.gateway.nodes = configObj.gateway.nodes ?? {};
+                configObj.gateway.nodes.allowCommands = mergedCmds;
+                configObj.tools.alsoAllow = mergedAllow;
+                await api.runtime.config.writeConfigFile(configObj, writeOptions);
+
+                const parts: string[] = [];
+                if (missingCmds.length > 0) parts.push(`${missingCmds.length} node commands`);
+                else if (commandsChanged) parts.push("normalized node commands");
+                if (missingTools.length > 0) parts.push(`${missingTools.length} agent tools (${BETTERCLAW_TOOLS.join(", ")})`);
+                else if (toolsChanged) parts.push("normalized agent tool allow-list");
+                console.log(`Added ${parts.join(" + ")}. Restart gateway to apply.`); // schema-lint: allow-console
+              } else {
                 console.log("All BetterClaw commands and tools already configured."); // schema-lint: allow-console
-                return;
               }
 
-              configObj.gateway = configObj.gateway ?? {};
-              configObj.gateway.nodes = configObj.gateway.nodes ?? {};
-              configObj.gateway.nodes.allowCommands = mergedCmds;
-              configObj.tools.alsoAllow = mergedAllow;
-              await api.runtime.config.writeConfigFile(configObj);
-
-              const parts: string[] = [];
-              if (addedCmds > 0) parts.push(`${addedCmds} node commands`);
-              if (addedTools > 0) parts.push(`${addedTools} agent tools (${BETTERCLAW_TOOLS.join(", ")})`);
-              console.log(`Added ${parts.join(" + ")}. Restart gateway to apply.`); // schema-lint: allow-console
+              await agentProfile.configure({ enabled: profileEnabled, workspaceDir });
+              if (profileEnabled) {
+                const result = await agentProfile.sync({ tier: ctxManager.getRuntimeState().tier, now: new Date() });
+                console.log(`Agent profile maintenance enabled for ${toolsFile}${result.changed ? "." : " (already current)."}`); // schema-lint: allow-console
+              } else {
+                console.log("Agent profile maintenance disabled."); // schema-lint: allow-console
+              }
             } catch (err) {
               console.error(`Failed to update config: ${err}`); // schema-lint: allow-console
               process.exit(1);
             }
           });
       },
-      { commands: ["betterclaw"] },
+      {
+        commands: ["betterclaw"],
+        descriptors: [{ name: "betterclaw", description: "BetterClaw plugin management", hasSubcommands: true }],
+      },
     );
   },
 };
