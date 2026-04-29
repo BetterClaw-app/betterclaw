@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { BETTERCLAW_COMMANDS, mergeAllowCommands, mergeAlsoAllow } from "../src/cli.js";
+import {
+  BETTERCLAW_COMMANDS,
+  mergeAllowCommands,
+  mergeAlsoAllow,
+  normalizeAgentProfileMode,
+  resolveAgentProfileConsent,
+} from "../src/cli.js";
 
 describe("CLI setup", () => {
   it("exports a non-empty commands list", () => {
@@ -21,6 +27,7 @@ describe("CLI setup", () => {
         "health.workouts",
         "location.get",
         "shortcuts.install",
+        "shortcuts.registry.get",
         "shortcuts.run",
         "subscribe.add",
         "subscribe.list",
@@ -75,5 +82,48 @@ describe("mergeAlsoAllow", () => {
     expect(mergeAlsoAllow([], [])).toEqual([]);
     expect(mergeAlsoAllow([], ["a"])).toEqual(["a"]);
     expect(mergeAlsoAllow(["a"], [])).toEqual(["a"]);
+  });
+});
+
+describe("agent profile setup helpers", () => {
+  it("normalizes supported profile modes", () => {
+    expect(normalizeAgentProfileMode(undefined)).toBe("prompt");
+    expect(normalizeAgentProfileMode("prompt")).toBe("prompt");
+    expect(normalizeAgentProfileMode("yes")).toBe("yes");
+    expect(normalizeAgentProfileMode("Y")).toBe("yes");
+    expect(normalizeAgentProfileMode("no")).toBe("no");
+    expect(normalizeAgentProfileMode("false")).toBe("no");
+  });
+
+  it("rejects unsupported profile modes", () => {
+    expect(() => normalizeAgentProfileMode("maybe")).toThrow("Invalid --agent-profile value");
+  });
+
+  it("resolves prompt consent only when interactive", async () => {
+    await expect(resolveAgentProfileConsent({
+      mode: "prompt",
+      isTTY: false,
+      ask: async () => true,
+    })).resolves.toBe(false);
+
+    await expect(resolveAgentProfileConsent({
+      mode: "prompt",
+      isTTY: true,
+      ask: async () => true,
+    })).resolves.toBe(true);
+  });
+
+  it("lets --yes accept prompt mode without asking", async () => {
+    let asked = false;
+    await expect(resolveAgentProfileConsent({
+      mode: "prompt",
+      yes: true,
+      isTTY: false,
+      ask: async () => {
+        asked = true;
+        return false;
+      },
+    })).resolves.toBe(true);
+    expect(asked).toBe(false);
   });
 });

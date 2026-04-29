@@ -172,6 +172,7 @@ export const MANIFEST: {
       events: {
         "learner.completed": { level: "info",  requiredKeys: ["durationMs"] },
         "learner.failed":    { level: "error", requiredKeys: [] },
+        "learner.skipped":   { level: "info",  requiredKeys: [] },
         "learner.started":   { level: "info",  requiredKeys: ["eventsCount", "reactionsCount", "hasMemory", "hasPreviousProfile"] },
         "profile.updated":   { level: "info",  requiredKeys: ["interruptionTolerance"] },
         "parse.failed":      { level: "warning", requiredKeys: [] },

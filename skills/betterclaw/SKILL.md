@@ -9,8 +9,23 @@ You have access to the user's physical device state via BetterClaw (iOS companio
 
 ## How to access device data
 
-1. Call `check_tier` (or use your cached tier if still valid).
-2. Follow the `dataPath` instructions in the response.
+1. First check whether the current workspace `TOOLS.md` contains a generated
+   `BetterClaw Device Profile` block.
+2. If the profile block has a tier and active node ID, use it immediately.
+3. If the profile block is missing or says the tier/node is unknown, call
+   `check_tier` once, then follow the returned `dataPath`.
+
+The BetterClaw plugin maintains the generated profile block when the user
+enabled it during setup. Treat anything between
+`<!-- betterclaw-device-profile:start v1 -->` and
+`<!-- betterclaw-device-profile:end -->` as plugin-owned generated state.
+
+## Fast device access
+
+For location-related user requests like "where am I?", "what city am I in?",
+"am I near home?", or "how far am I from work?", use `location.get` immediately
+when the profile/tier says premium. Use `get_context` for free tier or when the
+profile says to use the foreground/cached data path.
 
 ### Premium tier
 
@@ -35,6 +50,8 @@ Beyond sensors, you can perform actions on the device:
 - **Notifications**: `system.notify` — send a push notification to the user's device
 - **Clipboard**: `clipboard.write` — copy text to the device clipboard
 - **Shortcuts**: `shortcuts.run`, `shortcuts.install` — run or install iOS Shortcuts.
+  Use `shortcuts.registry.get` first when you need available shortcut names,
+  inputs, versions, or install status.
   `shortcuts.run` requires a user tap on a notification; if the user doesn't
   respond within ~28s you'll receive a pending response (ok:false, UNAVAILABLE,
   payloadJSON.status="pending") and the real result will arrive later as a
