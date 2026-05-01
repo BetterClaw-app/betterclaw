@@ -514,7 +514,7 @@ describe("plugin registration", () => {
       expect(res.result.ok).toBe(true);
       expect(res.result.initialized).toBe(true);
       expect(res.result.nodeConnected).toBe(false);
-      expect(typeof res.result.version).toBe("string");
+      expect(res.result.version).toMatch(/^\d+\.\d+\.\d+/);
     });
 
     it("persists tier — verifiable via betterclaw.context", async () => {
