@@ -2,7 +2,7 @@
   "id": "betterclaw",
   "name": "BetterClaw",
   "description": "Intelligent device context, event filtering, and proactive insights for BetterClaw iOS",
-  "version": "3.6.0-dev.0",
+  "version": "3.6.0",
   "main": "dist/index.js",
   "skills": ["./skills/betterclaw"],
   "configSchema": {
