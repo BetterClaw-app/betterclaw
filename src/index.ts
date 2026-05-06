@@ -32,6 +32,7 @@ import { AuditLog } from "./routing/audit-log.js";
 import { createEditRoutingRulesTool } from "./tools/edit-routing-rules.js";
 import { pruneStaleBetterClawIosNodes, resolveActiveBetterClawIosNodeId } from "./node-hygiene.js";
 import { AgentProfileManager, type SyncProfileInput } from "./agent-profile.js";
+import { createRequire } from "node:module";
 import * as path from "node:path";
 
 export type { PluginConfig } from "./types.js";
@@ -42,8 +43,9 @@ const DEFAULT_COOLDOWNS: Record<string, number> = {
 };
 
 const AGENT_PROFILE_SYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-const PLUGIN_VERSION = "3.6.1";
 const FALLBACK_TRIAGE_MODEL = "openai/gpt-5.4";
+const requirePackage = createRequire(import.meta.url);
+const PLUGIN_VERSION = resolvePluginVersion();
 
 const BETTERCLAW_CLI_OPTIONS = {
   commands: ["betterclaw"],
@@ -61,6 +63,18 @@ const DEFAULT_CONFIG: PluginConfig = {
   deduplicationCooldowns: DEFAULT_COOLDOWNS,
   defaultCooldown: 1800,
 };
+
+function resolvePluginVersion(): string {
+  try {
+    const pkg = requirePackage("../package.json") as { version?: unknown };
+    if (typeof pkg.version === "string" && pkg.version.trim().length > 0) {
+      return pkg.version;
+    }
+  } catch {
+    // Fall through to a safe value; package.json is expected in normal npm installs.
+  }
+  return "unknown";
+}
 
 function normalizeModelSelection(value: unknown): string | undefined {
   if (typeof value === "string") {
