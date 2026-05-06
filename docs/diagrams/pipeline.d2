@@ -1,0 +1,67 @@
+direction: down
+
+title: "Event Pipeline"
+
+event: "Event arrives" {
+  shape: oval
+}
+
+context_update: "Update context store"
+
+tier_check: "Tier?" {
+  shape: diamond
+}
+
+free_stored: "free_stored" {
+  shape: oval
+}
+
+jwt: "JWT check"
+
+smart_check: "Smart Mode?" {
+  shape: diamond
+}
+
+stored: "stored" {
+  shape: oval
+}
+
+rules: "Rules Engine"
+
+rules_result: "Result?" {
+  shape: diamond
+}
+
+triage: "LLM Triage\n(budget-aware, fail-closed)"
+
+push: "Push to agent" {
+  shape: oval
+}
+
+drop: "Drop" {
+  shape: oval
+}
+
+record: "Record reaction\n(pending, for scanner)"
+
+event -> context_update
+context_update -> tier_check
+
+tier_check -> free_stored: "free"
+tier_check -> jwt: "premium"
+
+jwt -> smart_check
+
+smart_check -> stored: "OFF"
+smart_check -> rules: "ON"
+
+rules -> rules_result
+
+rules_result -> push: "push"
+rules_result -> drop: "drop"
+rules_result -> triage: "ambiguous"
+
+triage -> push: "push"
+triage -> drop: "drop"
+
+push -> record

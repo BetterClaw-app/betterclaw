@@ -1,0 +1,30 @@
+direction: down
+
+title: "BetterClaw Plugin Architecture"
+
+ios: "BetterClaw iOS" {
+  sensors: "Battery | Location | Health | Geofences"
+}
+
+plugin: "Plugin (on gateway)" {
+  tier_gate: "Tier Gate"
+  context: "Context Store"
+  rules: "Rules Engine"
+  triage: "LLM Triage"
+  learner: "Daily Learner"
+  scanner: "Reaction Scanner"
+  patterns: "Pattern Engine"
+}
+
+agent: "AI Agent" {
+  check_tier: "check_tier"
+  get_context: "get_context"
+  node_cmds: "Node Commands\n(location.get, health.*, ...)"
+}
+
+ios -> plugin: "events + snapshots"
+plugin -> agent: "filtered push events"
+
+agent.check_tier -> plugin: "tier + routing"
+agent.get_context -> plugin: "patterns + cached state"
+agent.node_cmds -> ios: "fresh device data (premium)"
