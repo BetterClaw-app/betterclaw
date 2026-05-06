@@ -10,6 +10,13 @@ export interface TriageResult {
   priority?: "low" | "normal" | "high";
 }
 
+export type TriageModelRunner = (input: {
+  prompt: string;
+  model: string;
+  useModelOverride: boolean;
+  event: DeviceEvent;
+}) => Promise<string | null | undefined>;
+
 export function buildTriagePrompt(
   event: DeviceEvent,
   context: ContextManager,
@@ -115,8 +122,15 @@ export async function triageEvent(
   recentUserEdits: AuditEntry[],
   quietHours: { start: string; end: string; tz: string },
   currentLocalTime: string,
-  config: { triageModel: string; triageApiBase?: string; budgetUsed?: number; budgetTotal?: number },
+  config: {
+    triageModel: string;
+    triageModelUsesOpenClawDefault?: boolean;
+    triageApiBase?: string;
+    budgetUsed?: number;
+    budgetTotal?: number;
+  },
   resolveApiKey: () => Promise<string | undefined>,
+  runModel?: TriageModelRunner,
 ): Promise<TriageResult> {
   dlog.info("plugin.triage", "triage.called", "sending triage request", {
     subscriptionId: event.subscriptionId,
@@ -132,6 +146,24 @@ export async function triageEvent(
   );
 
   try {
+    if (runModel && !config.triageApiBase) {
+      const content = await runModel({
+        prompt,
+        model: config.triageModel,
+        useModelOverride: config.triageModelUsesOpenClawDefault !== true,
+        event,
+      });
+      if (!content) return { action: "drop", reason: "empty triage response — defaulting to drop" };
+
+      const result = parseTriageResponse(content);
+      dlog.info("plugin.triage", "triage.result", "triage decision", {
+        subscriptionId: event.subscriptionId,
+        decision: result.action,
+        reason: result.reason,
+      });
+      return result;
+    }
+
     const apiKey = await resolveApiKey();
     if (!apiKey) return { action: "drop", reason: "no API key for triage — defaulting to drop" };
 

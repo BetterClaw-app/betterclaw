@@ -54,7 +54,7 @@ vi.mock("../src/diagnostic-logger.js", () => {
   };
 });
 
-import plugin, { resolveConfig } from "../src/index.js";
+import plugin, { resolveConfig, resolveOpenClawPrimaryModel } from "../src/index.js";
 
 // ---------------------------------------------------------------------------
 // resolveConfig
@@ -64,7 +64,8 @@ describe("resolveConfig", () => {
   it("applies all defaults when config is undefined", () => {
     const cfg = resolveConfig(undefined);
     expect(cfg).toEqual({
-      triageModel: "openai/gpt-4o-mini",
+      triageModel: "openai/gpt-5.4",
+      triageModelUsesOpenClawDefault: true,
       triageApiBase: undefined,
       pushBudgetPerDay: 10,
       patternWindowDays: 14,
@@ -83,14 +84,14 @@ describe("resolveConfig", () => {
     expect(cfg.pushBudgetPerDay).toBe(20);
     expect(cfg.proactiveEnabled).toBe(false);
     // defaults preserved
-    expect(cfg.triageModel).toBe("openai/gpt-4o-mini");
+    expect(cfg.triageModel).toBe("openai/gpt-5.4");
     expect(cfg.patternWindowDays).toBe(14);
     expect(cfg.analysisHour).toBe(5);
   });
 
   it("applies defaults for empty object", () => {
     const cfg = resolveConfig({});
-    expect(cfg.triageModel).toBe("openai/gpt-4o-mini");
+    expect(cfg.triageModel).toBe("openai/gpt-5.4");
     expect(cfg.pushBudgetPerDay).toBe(10);
   });
 
@@ -120,6 +121,41 @@ describe("resolveConfig", () => {
       llmModel: "anthropic/claude-3-haiku",
     });
     expect(cfg.triageModel).toBe("openai/gpt-4o");
+  });
+
+  it("uses the provided OpenClaw primary model as the default triage model", () => {
+    const cfg = resolveConfig(undefined, "anthropic/claude-sonnet-4-5");
+    expect(cfg.triageModel).toBe("anthropic/claude-sonnet-4-5");
+  });
+
+  it("treats primary/default triageModel values as dynamic OpenClaw primary aliases", () => {
+    expect(resolveConfig({ triageModel: "primary" }, "anthropic/claude-sonnet-4-5").triageModel)
+      .toBe("anthropic/claude-sonnet-4-5");
+    expect(resolveConfig({ llmModel: "default" }, "google/gemini-3-pro").triageModel)
+      .toBe("google/gemini-3-pro");
+  });
+
+  it("resolves OpenClaw primary model from the default agent before agent defaults", () => {
+    const model = resolveOpenClawPrimaryModel({
+      agents: {
+        defaults: { model: "openai/gpt-5.4" },
+        list: [
+          { id: "ops", model: "anthropic/claude-haiku" },
+          { id: "main", default: true, model: { primary: "google/gemini-3-pro" } },
+        ],
+      },
+    });
+    expect(model).toBe("google/gemini-3-pro");
+  });
+
+  it("resolves OpenClaw primary model from agent defaults when no default agent model is set", () => {
+    const model = resolveOpenClawPrimaryModel({
+      agents: {
+        defaults: { model: { primary: "openrouter/qwen3" } },
+        list: [{ id: "main", default: true }],
+      },
+    });
+    expect(model).toBe("openrouter/qwen3");
   });
 
   it("merges custom deduplication cooldowns with defaults", () => {

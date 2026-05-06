@@ -42,7 +42,8 @@ const DEFAULT_COOLDOWNS: Record<string, number> = {
 };
 
 const AGENT_PROFILE_SYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-const PLUGIN_VERSION = "3.6.1-dev.0";
+const PLUGIN_VERSION = "3.6.1";
+const FALLBACK_TRIAGE_MODEL = "openai/gpt-5.4";
 
 const BETTERCLAW_CLI_OPTIONS = {
   commands: ["betterclaw"],
@@ -50,7 +51,8 @@ const BETTERCLAW_CLI_OPTIONS = {
 };
 
 const DEFAULT_CONFIG: PluginConfig = {
-  triageModel: "openai/gpt-4o-mini",
+  triageModel: FALLBACK_TRIAGE_MODEL,
+  triageModelUsesOpenClawDefault: true,
   triageApiBase: undefined,
   pushBudgetPerDay: 10,
   patternWindowDays: 14,
@@ -60,10 +62,79 @@ const DEFAULT_CONFIG: PluginConfig = {
   defaultCooldown: 1800,
 };
 
-export function resolveConfig(raw: Record<string, unknown> | undefined): PluginConfig {
+function normalizeModelSelection(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+  if (value && typeof value === "object") {
+    const primary = (value as { primary?: unknown }).primary;
+    if (typeof primary === "string") {
+      const trimmed = primary.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    }
+  }
+  return undefined;
+}
+
+function normalizeConfiguredTriageModel(value: unknown): string | undefined {
+  const model = normalizeModelSelection(value);
+  if (!model) return undefined;
+  const normalized = model.toLowerCase();
+  if (normalized === "primary" || normalized === "default") return undefined;
+  return model;
+}
+
+function resolveRuntimeDefaultModel(api: OpenClawPluginApi): string {
+  const defaults = (api.runtime.agent as { defaults?: { provider?: string; model?: string } }).defaults;
+  const provider = defaults?.provider;
+  const model = defaults?.model;
+  if (!model) return FALLBACK_TRIAGE_MODEL;
+  if (model.includes("/")) return model;
+  return provider ? `${provider}/${model}` : model;
+}
+
+export function resolveOpenClawPrimaryModel(runtimeConfig: Record<string, unknown> | undefined, fallback = FALLBACK_TRIAGE_MODEL): string {
+  const agents = runtimeConfig?.agents && typeof runtimeConfig.agents === "object"
+    ? runtimeConfig.agents as { defaults?: { model?: unknown }; list?: Array<{ id?: unknown; default?: unknown; model?: unknown }> }
+    : undefined;
+
+  if (agents) {
+    let defaultAgentId: string | undefined;
+    try {
+      defaultAgentId = resolveDefaultAgentId(runtimeConfig as any);
+    } catch {
+      defaultAgentId = undefined;
+    }
+
+    const defaultAgent = defaultAgentId
+      ? agents.list?.find((agent) => agent.id === defaultAgentId)
+      : agents.list?.find((agent) => agent.default === true) ?? agents.list?.[0];
+    const agentModel = normalizeModelSelection(defaultAgent?.model);
+    if (agentModel) return agentModel;
+
+    const defaultModel = normalizeModelSelection(agents.defaults?.model);
+    if (defaultModel) return defaultModel;
+  }
+
+  return fallback;
+}
+
+function resolveRuntimeConfigForDefaults(api: OpenClawPluginApi): Record<string, unknown> | undefined {
+  try {
+    return (api.config ?? api.runtime.config.loadConfig()) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveConfig(raw: Record<string, unknown> | undefined, defaultTriageModel = FALLBACK_TRIAGE_MODEL): PluginConfig {
   const cfg = raw ?? {};
+  const configuredTriageModel = normalizeConfiguredTriageModel(cfg.triageModel)
+    ?? normalizeConfiguredTriageModel(cfg.llmModel);
   return {
-    triageModel: (cfg.triageModel as string) ?? (cfg.llmModel as string) ?? "openai/gpt-4o-mini",
+    triageModel: configuredTriageModel ?? defaultTriageModel,
+    triageModelUsesOpenClawDefault: configuredTriageModel == null,
     triageApiBase: (cfg.triageApiBase as string) ?? undefined,
     pushBudgetPerDay: typeof cfg.pushBudgetPerDay === "number" && cfg.pushBudgetPerDay > 0 ? cfg.pushBudgetPerDay : 10,
     patternWindowDays: typeof cfg.patternWindowDays === "number" && cfg.patternWindowDays > 0 ? cfg.patternWindowDays : 14,
@@ -102,7 +173,9 @@ export default {
       return;
     }
 
-    const config = resolveConfig(api.pluginConfig as Record<string, unknown> | undefined);
+    const runtimeConfigForDefaults = resolveRuntimeConfigForDefaults(api);
+    const defaultTriageModel = resolveOpenClawPrimaryModel(runtimeConfigForDefaults, resolveRuntimeDefaultModel(api));
+    const config = resolveConfig(api.pluginConfig as Record<string, unknown> | undefined, defaultTriageModel);
     const stateDir = api.runtime.state.resolveStateDir();
     const diagnosticLogger = initDiagnosticLogger(path.join(stateDir, "logs"), api.logger);
     const redactionKey = randomBytes(32);

@@ -5,6 +5,7 @@ import type { RulesEngine } from "./filter.js";
 import type { ReactionTracker } from "./reactions.js";
 import type { DeviceEvent, DeviceContext, PluginConfig } from "./types.js";
 import { triageEvent } from "./triage.js";
+import type { TriageModelRunner } from "./triage.js";
 import { requireEntitlement } from "./jwt.js";
 import { errorFields } from "./errors.js";
 import { dlog } from "./diagnostic-logger.js";
@@ -24,6 +25,92 @@ export interface PipelineDeps {
   stateDir: string;
   routing: RoutingConfigStore;
   audit: AuditLog;
+}
+
+function splitModelRef(ref: string): { provider?: string; model: string } {
+  const parts = ref.split("/");
+  if (parts.length <= 1) return { model: ref };
+  return { provider: parts[0], model: parts.slice(1).join("/") };
+}
+
+function assistantContent(messages: unknown[]): string | null {
+  const lastAssistant = (messages as any[]).filter((message) => message?.role === "assistant").pop();
+  if (!lastAssistant) return null;
+  if (typeof lastAssistant.content === "string") return lastAssistant.content;
+  if (Array.isArray(lastAssistant.content)) {
+    return lastAssistant.content
+      .filter((block: any) => block?.type === "text" && typeof block.text === "string")
+      .map((block: any) => block.text)
+      .join("");
+  }
+  return null;
+}
+
+function buildTriageRunArgs(input: {
+  sessionKey: string;
+  message: string;
+  event: DeviceEvent;
+  model: string;
+  useModelOverride: boolean;
+}): Record<string, unknown> {
+  const args: Record<string, unknown> = {
+    sessionKey: input.sessionKey,
+    message: input.message,
+    deliver: false,
+    idempotencyKey: `betterclaw-triage-${input.event.subscriptionId}-${Math.floor(input.event.firedAt)}`,
+  };
+
+  if (input.useModelOverride) {
+    const modelRef = splitModelRef(input.model);
+    args.model = modelRef.model;
+    if (modelRef.provider) args.provider = modelRef.provider;
+  }
+
+  return args;
+}
+
+function isModelOverrideRejection(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  const lower = message.toLowerCase();
+  return lower.includes("allowmodeloverride")
+    || lower.includes("model override")
+    || lower.includes("override requests are rejected");
+}
+
+export function createTriageModelRunner(deps: PipelineDeps): TriageModelRunner {
+  return async ({ prompt, model, useModelOverride, event }) => {
+    const sessionKey = "betterclaw-triage";
+    const message = `${prompt}\n\nIMPORTANT: Respond with ONLY a JSON object {"action","reason","priority"}. Do NOT call any tools.`;
+    const runArgs = buildTriageRunArgs({ sessionKey, message, event, model, useModelOverride });
+
+    try { await deps.api.runtime.subagent.deleteSession({ sessionKey }); } catch { /* ignore */ }
+    try {
+      let runId: string;
+      try {
+        ({ runId } = await deps.api.runtime.subagent.run(runArgs as any));
+      } catch (err) {
+        if (!useModelOverride || !isModelOverrideRejection(err)) throw err;
+        dlog.warning("plugin.triage", "triage.model.override.rejected",
+          "triage model override rejected by OpenClaw; retrying with default session model",
+          { model, ...errorFields(err) });
+        ({ runId } = await deps.api.runtime.subagent.run({
+          sessionKey,
+          message,
+          deliver: false,
+          idempotencyKey: `betterclaw-triage-${event.subscriptionId}-${Math.floor(event.firedAt)}`,
+        }));
+      }
+      const wait = await deps.api.runtime.subagent.waitForRun({ runId, timeoutMs: 30000 });
+      const status = wait.status as string;
+      if (status !== "ok" && status !== "completed") {
+        throw new Error(wait.error ?? `triage model run ${wait.status}`);
+      }
+      const { messages } = await deps.api.runtime.subagent.getSessionMessages({ sessionKey, limit: 5 });
+      return assistantContent(messages);
+    } finally {
+      try { await deps.api.runtime.subagent.deleteSession({ sessionKey }); } catch { /* ignore */ }
+    }
+  };
 }
 
 export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Promise<void> {
@@ -156,11 +243,13 @@ export async function processEvent(deps: PipelineDeps, event: DeviceEvent): Prom
         routing.quietHours, currentLocalTime,
         {
           triageModel: config.triageModel,
+          triageModelUsesOpenClawDefault: config.triageModelUsesOpenClawDefault,
           triageApiBase: config.triageApiBase,
           budgetUsed: context.get().meta.pushesToday,
           budgetTotal: effectiveBudget,
         },
         resolveApiKey,
+        createTriageModelRunner(deps),
       );
     } catch (err) {
       // Hard fallback: if triageEvent throws synchronously before its own try/catch,

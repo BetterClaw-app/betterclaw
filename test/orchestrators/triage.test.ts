@@ -84,6 +84,76 @@ describe("triageEvent", () => {
     expect(result.reason).toContain("no API key");
   });
 
+  it("uses OpenClaw model runner when provided and no triageApiBase override is set", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const runModel = vi.fn(async () => JSON.stringify({
+      action: "notify",
+      reason: "primary model says notify",
+      priority: "normal",
+    }));
+    const resolveApiKey = vi.fn(async () => undefined);
+
+    const result = await triageEvent(
+      makeEvent(), makeContext(), [], new Set(), [], quietHours, currentLocalTime,
+      { triageModel: "anthropic/claude-sonnet-4-5" }, resolveApiKey, runModel,
+    );
+
+    expect(result.action).toBe("notify");
+    expect(result.reason).toBe("primary model says notify");
+    expect(runModel).toHaveBeenCalledWith(expect.objectContaining({
+      model: "anthropic/claude-sonnet-4-5",
+      useModelOverride: true,
+    }));
+    expect(resolveApiKey).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not request a model override when triage uses the OpenClaw default model", async () => {
+    const runModel = vi.fn(async () => JSON.stringify({
+      action: "push",
+      reason: "default session model says push",
+      priority: "normal",
+    }));
+
+    await triageEvent(
+      makeEvent(), makeContext(), [], new Set(), [], quietHours, currentLocalTime,
+      { triageModel: "anthropic/claude-sonnet-4-5", triageModelUsesOpenClawDefault: true },
+      async () => undefined,
+      runModel,
+    );
+
+    expect(runModel).toHaveBeenCalledWith(expect.objectContaining({
+      model: "anthropic/claude-sonnet-4-5",
+      useModelOverride: false,
+    }));
+  });
+
+  it("uses direct OpenAI-compatible HTTP when triageApiBase is set even if a model runner exists", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: '{"action":"push","reason":"http override","priority":"low"}' } }],
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const runModel = vi.fn(async () => {
+      throw new Error("should not run");
+    });
+
+    const result = await triageEvent(
+      makeEvent(), makeContext(), [], new Set(), [], quietHours, currentLocalTime,
+      { triageModel: "openai/gpt-4o-mini", triageApiBase: "http://localhost:11434/v1" },
+      async () => "sk-test",
+      runModel,
+    );
+
+    expect(result.action).toBe("push");
+    expect(result.reason).toBe("http override");
+    expect(runModel).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
   it("returns drop on non-OK HTTP response (429)", async () => {
     vi.stubGlobal(
       "fetch",

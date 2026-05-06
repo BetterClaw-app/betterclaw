@@ -59,6 +59,22 @@ openclaw betterclaw setup   # configures gateway commands/tools and prompts for 
 openclaw gateway restart    # apply config changes when setup reports changes
 ```
 
+Installing from a source checkout requires a build first, because OpenClaw loads
+installed plugins from compiled JavaScript. Install the packed artifact instead
+of the checkout directory so OpenClaw scans the same file set that would ship to
+npm:
+
+```bash
+git clone https://github.com/BetterClaw-app/betterclaw.git
+cd betterclaw
+npm install
+npm run build
+TARBALL=$(npm pack --silent)
+openclaw plugins install "./$TARBALL"
+openclaw betterclaw setup
+openclaw gateway restart
+```
+
 Non-interactive setup scripts should pass an explicit profile choice:
 
 ```bash
@@ -112,7 +128,7 @@ Add to your `openclaw.json`:
       "betterclaw": {
         "enabled": true,
         "config": {
-          "triageModel": "openai/gpt-4o-mini",
+          "triageModel": "primary",
           "pushBudgetPerDay": 10,
           "patternWindowDays": 14,
           "analysisHour": 5,
@@ -130,14 +146,38 @@ All config keys are optional — defaults are shown above.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `triageModel` | `openai/gpt-4o-mini` | Model for per-event triage and engagement classification |
-| `triageApiBase` | -- | Optional base URL for OpenAI-compatible endpoint (e.g., Ollama) |
+| `triageModel` | `primary` | Model for per-event triage and engagement classification. `primary`/`default` uses OpenClaw's default session model without requesting a plugin model override. Concrete model refs request a subagent model override. |
+| `triageApiBase` | -- | Optional base URL for an OpenAI-compatible endpoint. When set, triage uses direct HTTP instead of OpenClaw's subagent runtime. |
 | `pushBudgetPerDay` | `10` | Max events forwarded to the agent per day |
 | `patternWindowDays` | `14` | Days of event history used for pattern computation |
 | `analysisHour` | `5` | Hour (0-23, system timezone) for daily pattern + learner analysis |
 | `calibrationDays` | `3` | Days of rules-only triage before learner profile kicks in |
 
 > **Migration from v2:** `llmModel` still works as a deprecated alias for `triageModel`. `proactiveEnabled` is ignored (proactive triggers removed in v3).
+
+To force triage onto a specific model through OpenClaw's subagent runtime, the
+gateway must explicitly allow BetterClaw to request model overrides:
+
+```jsonc
+{
+  "plugins": {
+    "entries": {
+      "betterclaw": {
+        "subagent": {
+          "allowModelOverride": true,
+          "allowedModels": ["anthropic/claude-sonnet-4-5"]
+        },
+        "config": {
+          "triageModel": "anthropic/claude-sonnet-4-5"
+        }
+      }
+    }
+  }
+}
+```
+
+If `triageApiBase` is set, `triageModel` is sent to that OpenAI-compatible HTTP
+endpoint instead of OpenClaw's subagent runtime.
 
 ## How It Works
 

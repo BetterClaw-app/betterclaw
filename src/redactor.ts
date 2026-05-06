@@ -185,6 +185,7 @@ export const MANIFEST: {
         "triage.result":     { level: "info",    requiredKeys: ["subscriptionId", "decision"] },
         "triage.fallback":   { level: "error",   requiredKeys: ["subscriptionId", "fallbackAction"] },
         "triage.http.error": { level: "warning", requiredKeys: ["status"] },
+        "triage.model.override.rejected": { level: "warning", requiredKeys: ["model"] },
       },
     },
     "plugin.context": {

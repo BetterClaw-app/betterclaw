@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { processEvent } from "../../src/pipeline.js";
+import { createTriageModelRunner, processEvent } from "../../src/pipeline.js";
 import { makeTmpDir } from "../helpers.js";
 import type { PipelineDeps } from "../../src/pipeline.js";
 import { ContextManager } from "../../src/context.js";
@@ -91,6 +91,7 @@ describe("pipeline integration", () => {
   let tmpDir: string;
 
   beforeEach(async () => {
+    vi.clearAllMocks();
     tmpDir = await makeTmpDir("betterclaw-pipeline-");
   });
 
@@ -265,5 +266,93 @@ describe("pipeline integration", () => {
     expect(entries[0].reason).toContain("smartMode off");
     expect(triageSpy).not.toHaveBeenCalled();
     expect(mockApi.runtime.subagent.run).not.toHaveBeenCalled();
+  });
+
+  it("triage runner uses the OpenClaw default session model without provider/model override", async () => {
+    const api = {
+      runtime: {
+        subagent: {
+          deleteSession: vi.fn().mockResolvedValue(undefined),
+          run: vi.fn().mockResolvedValue({ runId: "run-default" }),
+          waitForRun: vi.fn().mockResolvedValue({ status: "completed" }),
+          getSessionMessages: vi.fn().mockResolvedValue({
+            messages: [{ role: "assistant", content: '{"action":"push","reason":"ok","priority":"normal"}' }],
+          }),
+        },
+      },
+    };
+    const runner = createTriageModelRunner({ api } as unknown as PipelineDeps);
+
+    const content = await runner({
+      prompt: "decide",
+      model: "anthropic/claude-sonnet-4-5",
+      useModelOverride: false,
+      event: makeEvent(),
+    });
+
+    const args = api.runtime.subagent.run.mock.calls[0][0];
+    expect(args.provider).toBeUndefined();
+    expect(args.model).toBeUndefined();
+    expect(content).toContain('"action":"push"');
+  });
+
+  it("triage runner requests provider/model only for explicit triageModel overrides", async () => {
+    const api = {
+      runtime: {
+        subagent: {
+          deleteSession: vi.fn().mockResolvedValue(undefined),
+          run: vi.fn().mockResolvedValue({ runId: "run-override" }),
+          waitForRun: vi.fn().mockResolvedValue({ status: "completed" }),
+          getSessionMessages: vi.fn().mockResolvedValue({
+            messages: [{ role: "assistant", content: '{"action":"notify","reason":"ok","priority":"normal"}' }],
+          }),
+        },
+      },
+    };
+    const runner = createTriageModelRunner({ api } as unknown as PipelineDeps);
+
+    await runner({
+      prompt: "decide",
+      model: "anthropic/claude-sonnet-4-5",
+      useModelOverride: true,
+      event: makeEvent(),
+    });
+
+    const args = api.runtime.subagent.run.mock.calls[0][0];
+    expect(args.provider).toBe("anthropic");
+    expect(args.model).toBe("claude-sonnet-4-5");
+  });
+
+  it("triage runner retries with the default session model when OpenClaw rejects a model override", async () => {
+    const api = {
+      runtime: {
+        subagent: {
+          deleteSession: vi.fn().mockResolvedValue(undefined),
+          run: vi.fn()
+            .mockRejectedValueOnce(new Error("model override rejected; set allowModelOverride"))
+            .mockResolvedValueOnce({ runId: "run-fallback" }),
+          waitForRun: vi.fn().mockResolvedValue({ status: "completed" }),
+          getSessionMessages: vi.fn().mockResolvedValue({
+            messages: [{ role: "assistant", content: '{"action":"push","reason":"fallback","priority":"normal"}' }],
+          }),
+        },
+      },
+    };
+    const runner = createTriageModelRunner({ api } as unknown as PipelineDeps);
+
+    await runner({
+      prompt: "decide",
+      model: "anthropic/claude-sonnet-4-5",
+      useModelOverride: true,
+      event: makeEvent(),
+    });
+
+    expect(api.runtime.subagent.run).toHaveBeenCalledTimes(2);
+    expect(api.runtime.subagent.run.mock.calls[0][0]).toEqual(expect.objectContaining({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+    }));
+    expect(api.runtime.subagent.run.mock.calls[1][0].provider).toBeUndefined();
+    expect(api.runtime.subagent.run.mock.calls[1][0].model).toBeUndefined();
   });
 });

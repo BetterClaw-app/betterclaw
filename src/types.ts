@@ -140,6 +140,7 @@ export interface Patterns {
 
 export interface PluginConfig {
   triageModel: string;
+  triageModelUsesOpenClawDefault?: boolean;
   triageApiBase?: string;
   pushBudgetPerDay: number;
   patternWindowDays: number;

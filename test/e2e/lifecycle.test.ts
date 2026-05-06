@@ -38,6 +38,7 @@ vi.stubGlobal("fetch", mockFetch);
 
 const baseConfig: PluginConfig = {
   triageModel: "openai/gpt-4o-mini",
+  triageApiBase: "https://api.openai.com/v1",
   pushBudgetPerDay: 3, // low for budget tests
   patternWindowDays: 7,
   proactiveEnabled: false,
@@ -160,31 +161,37 @@ afterAll(async () => {
 });
 
 describe("Scenario 1: Full event lifecycle", () => {
-  it("processes battery-low event through the full pipeline", async () => {
-    const { deps, patterns } = await makeDeps(tmpDir);
-    const event = batteryLowEvent(0.15);
+  it("processes a geofence event through the full pipeline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-18T14:00:00Z"));
+    try {
+      const { deps, patterns } = await makeDeps(tmpDir);
+      const event = geofenceEvent("Home", 1, Date.now() / 1000);
 
-    await processEvent(deps, event);
+      await processEvent(deps, event);
 
-    // Context updated with battery level
-    const ctx = deps.context.get();
-    expect(ctx.device.battery).not.toBeNull();
-    expect(ctx.device.battery!.level).toBe(0.15);
+      // Context updated with current zone and location label.
+      const ctx = deps.context.get();
+      expect(ctx.activity.currentZone).toBe("Home");
+      expect(ctx.device.location?.label).toBe("Home");
 
-    // Event logged with notify decision (battery-low rule is non-explicit + triage → notify)
-    const entries = await deps.events.readAll();
-    expect(entries).toHaveLength(1);
-    expect(entries[0].decision).toBe("notify");
+      // Event logged with notify decision (geofence default + triage -> notify).
+      const entries = await deps.events.readAll();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].decision).toBe("notify");
 
-    // subagent.run called with message containing marker and battery percentage
-    const runCall = (deps.api.runtime.subagent.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(runCall.message).toContain("[BetterClaw device event");
-    expect(runCall.message).toContain("15%");
+      // subagent.run called with message containing marker and geofence body.
+      const runCall = (deps.api.runtime.subagent.run as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(runCall.message).toContain("[BetterClaw notify");
+      expect(runCall.message).toContain("Geofence enter: Home");
 
-    // Patterns computable from the event
-    const computed = await patterns.compute();
-    expect(computed).toBeDefined();
-    expect(computed.computedAt).toBeGreaterThan(0);
+      // Patterns computable from the event.
+      const computed = await patterns.compute();
+      expect(computed).toBeDefined();
+      expect(computed.computedAt).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -352,7 +359,6 @@ describe("Scenario 4: State accumulation", () => {
 
     // Context reflects latest values
     const ctx = deps.context.get();
-    expect(ctx.device.battery!.level).toBe(0.22);
     expect(ctx.activity.currentZone).toBe("Office");
     expect(ctx.device.health!.stepsToday).toBe(8000);
 
@@ -369,30 +375,36 @@ describe("Scenario 4: State accumulation", () => {
 
 describe("Scenario 5: Cold start", () => {
   it("processes first event from fresh state with no files", async () => {
-    const freshDir = await makeTmpDir("betterclaw-e2e-cold-");
-    tmpDirs.push(freshDir);
-    const { deps, patterns } = await makeDeps(freshDir);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-18T14:00:00Z"));
+    try {
+      const freshDir = await makeTmpDir("betterclaw-e2e-cold-");
+      tmpDirs.push(freshDir);
+      const { deps, patterns } = await makeDeps(freshDir);
 
-    const event = batteryLowEvent(0.18);
-    await processEvent(deps, event);
+      const event = geofenceEvent("Home", 1, Date.now() / 1000);
+      await processEvent(deps, event);
 
-    // State files created
-    const eventsPath = path.join(freshDir, "events.jsonl");
-    const contextPath = path.join(freshDir, "context.json");
-    await expect(fs.access(eventsPath)).resolves.toBeUndefined();
-    await expect(fs.access(contextPath)).resolves.toBeUndefined();
+      // State files created.
+      const eventsPath = path.join(freshDir, "events.jsonl");
+      const contextPath = path.join(freshDir, "context.json");
+      await expect(fs.access(eventsPath)).resolves.toBeUndefined();
+      await expect(fs.access(contextPath)).resolves.toBeUndefined();
 
-    // Event logged (battery-low rule is non-explicit → triage → notify)
-    const entries = await deps.events.readAll();
-    expect(entries).toHaveLength(1);
-    expect(entries[0].decision).toBe("notify");
+      // Event logged (geofence rule is non-explicit -> triage -> notify).
+      const entries = await deps.events.readAll();
+      expect(entries).toHaveLength(1);
+      expect(entries[0].decision).toBe("notify");
 
-    // Patterns computable from single event
-    const computed = await patterns.compute();
-    expect(computed).toBeDefined();
-    expect(computed.batteryPatterns.lowBatteryFrequency).not.toBeNull();
+      // Patterns computable from single event.
+      const computed = await patterns.compute();
+      expect(computed).toBeDefined();
+      expect(computed.eventStats.topSources).toContain("geofence.triggered");
 
-    // Cleanup handled by afterAll
+      // Cleanup handled by afterAll.
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

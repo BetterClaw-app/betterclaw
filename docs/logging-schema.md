@@ -142,6 +142,7 @@
 | `triage.called` | `info` | `subscriptionId`, `model` |
 | `triage.fallback` | `error` | `subscriptionId`, `fallbackAction` |
 | `triage.http.error` | `warning` | `status` |
+| `triage.model.override.rejected` | `warning` | `model` |
 | `triage.result` | `info` | `subscriptionId`, `decision` |
 
 ## Export categories
