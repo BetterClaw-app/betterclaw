@@ -42,7 +42,7 @@ const DEFAULT_COOLDOWNS: Record<string, number> = {
 };
 
 const AGENT_PROFILE_SYNC_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
-const PLUGIN_VERSION = "3.6.0-dev.0";
+const PLUGIN_VERSION = "3.6.1-dev.0";
 
 const BETTERCLAW_CLI_OPTIONS = {
   commands: ["betterclaw"],

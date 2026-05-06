@@ -1,6 +1,6 @@
 {
   "name": "@better_openclaw/betterclaw",
-  "version": "3.6.0",
+  "version": "3.6.1-dev.0",
   "description": "Intelligent event filtering, context tracking, and proactive triggers for BetterClaw",
   "license": "AGPL-3.0-only",
   "repository": {
@@ -8,15 +8,29 @@
     "url": "https://github.com/BetterClaw-app/betterclaw.git"
   },
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/",
+    "skills/",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "schema:gen": "tsx scripts/generate-schema-doc.ts"
   },
   "openclaw": {
     "extensions": [
-      "./src/index.ts"
-    ]
+      "./dist/index.js"
+    ],
+    "install": {
+      "minHostVersion": ">=2026.4.14"
+    }
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.0"
