@@ -49,7 +49,7 @@ The plugin differentiates between **free** and **premium** tiers:
 ## Requirements
 
 - [BetterClaw iOS app](https://github.com/BetterClaw-app/BetterClaw-ios) installed and connected to your gateway
-- [OpenClaw](https://openclaw.dev) gateway (2026.4.14+)
+- [OpenClaw](https://openclaw.dev) gateway (2026.5.5+)
 
 ## Install
 

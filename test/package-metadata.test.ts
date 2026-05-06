@@ -13,7 +13,14 @@ describe("package metadata", () => {
     expect(packageJson.types).toBe("./dist/index.d.ts");
     expect(pluginJson.main).toBe("dist/index.js");
     expect(packageJson.openclaw.extensions).toEqual(["./dist/index.js"]);
-    expect(packageJson.openclaw.install.minHostVersion).toBe(">=2026.4.14");
+    expect(packageJson.openclaw.runtimeExtensions).toEqual(["./dist/index.js"]);
+    expect(packageJson.openclaw.install.minHostVersion).toBe(">=2026.5.5");
+    expect(pluginJson.activation).toEqual({ onStartup: true });
+    expect(pluginJson.contracts.tools).toEqual([
+      "check_tier",
+      "get_context",
+      "edit_routing_rules",
+    ]);
     expect(packageJson.files).toContain("dist/");
     expect(packageJson.scripts.prepack).toBe("npm run build");
   });
